@@ -9,13 +9,17 @@
       ({{ _docker_swarm_local.Error | default('') }}). Resolve it by hand (e.g. `docker swarm leave --force`).
     quiet: true
 
+# Only managers report a cluster ID; workers and fresh nodes have no (or a null) Cluster.
+# fail_msg is rendered even when the check passes, so it must cope with that too.
 - name: Check this node isn't a manager of another swarm
   ansible.builtin.assert:
     that: >-
       not (_docker_swarm_local.ControlAvailable | default(false))
-      or _docker_swarm_local.Cluster.ID == _docker_swarm_cluster_id
-    fail_msg: "{{ inventory_hostname }} manages a different swarm ({{ _docker_swarm_local.Cluster.ID }})."
+      or _docker_swarm_local_cluster_id == _docker_swarm_cluster_id
+    fail_msg: "{{ inventory_hostname }} manages a different swarm ({{ _docker_swarm_local_cluster_id }})."
     quiet: true
+  vars:
+    _docker_swarm_local_cluster_id: "{{ (_docker_swarm_local.Cluster | default({}, true)).ID | default('') }}"
 
 # Managers join one at a time: adding several raft members at once can lose quorum.
 - name: Join the swarm as a manager
