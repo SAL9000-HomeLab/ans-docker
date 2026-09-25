@@ -46,7 +46,10 @@
         "endif",
         "ipsec",
         "vxlan",
-        "noqa"
+        "noqa",
+        "Synology",
+        "pgdata",
+        "nfstest"
     ],
     "flagWords": [
         "hte"

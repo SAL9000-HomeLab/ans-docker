@@ -14,6 +14,10 @@ The values committed in `inventory/` and `group_vars/` are placeholders (`exampl
 AWX inventory and your secrets in AWX credentials, or in local files that are gitignored (`local/`,
 `extra-vars*.yml`). Never commit credentials: this repository is public.
 
+Tested on Rocky Linux 10 with Docker CE 29.8, Arcane v2.13.1 and ansible-core 2.16 (AWX): creating the swarm,
+re-running unchanged, promoting workers to managers, removing and re-adding a node, and Arcane on SQLite and on the
+bundled PostgreSQL over NFS.
+
 ## Inventory
 
 The roles are driven by three groups (see [inventory/hosts.yml](inventory/hosts.yml)):
@@ -47,7 +51,7 @@ Move the host between `docker_swarm_managers` and `docker_swarm_workers`, then r
    (`docker_swarm_managers:old-host`). Removal runs from a manager.
 3. The play demotes the node if it's a manager, drains it, waits for its tasks to start elsewhere, runs
    `docker swarm leave` on it, and deletes it from the swarm.
-4. Delete the host from the inventory.
+4. Delete the host from the inventory, or take it out of `docker_swarm_remove` and run the job again to rejoin it.
 
 If the host is already dead and Ansible can't reach it, it's deleted from the swarm once the swarm reports it
 `Down`. If the swarm node name isn't the inventory name or its short form, set `docker_swarm_node_hostname`.
@@ -146,15 +150,44 @@ arcane_postgres_volume_driver_opts:
   device: ":/volume1/docker/arcane/postgres"
 ```
 
+Put these on the `docker_swarm` group in the AWX inventory (or in the job template's variables) as top-level
+variables, not nested under another key.
+
 This adds a `db` service (`postgres:18-alpine`) to the `arcane` stack. Arcane connects to it as `db` over the
 stack's own network, so no database port is published; the role builds the connection URL and stores it, like the
-password, as a Docker secret. Both services then move to another manager if theirs fails. Create the two NFS
-directories first.
+password, as a Docker secret. Both services then move to another manager if theirs fails.
+
+Before the first run:
+
+1. Create the two NFS directories, exported to every manager.
+2. Check that each manager can mount them and that root can change ownership there (Postgres and Arcane both change
+   the owner of their data directory on start). From AWX (**Inventories → Run Command**, module `shell`, privilege
+   escalation on) or the CLI:
+
+   ```sh
+   ansible docker_swarm_managers -b -m shell -a '
+     set -e
+     d=$(mktemp -d)
+     mount -t nfs4 nas01.example.com:/volume1/docker/arcane/postgres "$d"
+     trap "umount $d; rmdir $d" EXIT
+     f="$d/probe-$(hostname -s)"
+     touch "$f"; chown 70:70 "$f"; ls -ln "$f"; rm "$f"'
+   ```
+
+   "Operation not permitted" means root is squashed; on Synology, set the NFS rule's **Squash** to "No mapping".
+3. If Arcane already runs with a local data volume, remove it first. Docker reuses an existing volume of the same
+   name, so the node that ran Arcane would otherwise keep using its local copy instead of NFS:
+
+   ```sh
+   sudo docker stack rm arcane      # on a manager
+   sudo docker volume rm arcane_data  # on the node that ran Arcane, once the stack is gone
+   ```
 
 Things to know before you enable it:
 
 - **Leave the `arcane` stack alone in the UI.** Arcane lists its own stack like any other. Stopping or removing it
-  there takes Arcane down with it; run the job again to restore it.
+  there takes Arcane down with it; run the job again to restore it. The job deploys the stack with `--prune`, so
+  anything added to it by hand is removed on the next run.
 - **Enabling it starts Arcane with an empty database.** Nothing is migrated from SQLite, so settings, users and
   environments have to be set up again. Enable it on a new install if you can.
 - **Start order.** Swarm ignores `depends_on`, so Arcane can start before the database is ready; it restarts
@@ -183,7 +216,10 @@ token for each node, so they aren't deployed by this repo yet.
 
 1. **Project**: this repository.
 2. **Inventory**: a group `docker_swarm` with the child groups `docker_swarm_managers`, `docker_swarm_workers` and
-   `docker_swarm_remove`. Add host variables such as `docker_swarm_node_labels` there.
+   `docker_swarm_remove`, all three created even if `docker_swarm_remove` is empty. The inventory's own name isn't a
+   group, so the parent group must be called `docker_swarm` for [group_vars/docker_swarm.yml](group_vars/docker_swarm.yml)
+   to apply. Put your real settings (e.g. `arcane_app_url`) on that group as top-level variables, and host
+   variables such as `docker_swarm_node_labels` on the hosts.
 3. **Credentials**:
    - A Machine credential for the `ansible` user (SSH key, sudo).
    - A custom credential type for Arcane, so the key never sits in extra vars:
@@ -209,6 +245,22 @@ token for each node, so they aren't deployed by this repo yet.
 
 The execution environment needs the `ansible.posix` collection ([requirements.yml](requirements.yml)).
 Nothing needs to be installed in Python on the nodes: the roles use the `docker` CLI.
+
+## Troubleshooting
+
+- **The Arcane deploy fails** after waiting (`arcane_deploy_wait_retries` × `arcane_deploy_wait_delay`): the error
+  lists each service's replica count, recent task errors and last log lines. On a manager, the same comes from:
+
+  ```sh
+  sudo docker service ls --filter label=com.docker.stack.namespace=arcane
+  sudo docker service ps --no-trunc arcane_arcane      # or arcane_db
+  sudo docker service logs --tail 50 arcane_arcane
+  ```
+
+  A task that keeps restarting with `non-zero exit` is crashing; the reason is in `docker service logs`, not in
+  `/var/log/messages`.
+- **Swarm state:** `sudo docker node ls` on any manager shows every node's status, availability and manager role.
+- **Can't log in to a new Arcane:** the default account is `arcane` / `arcane-admin`, not `admin` / `admin`.
 
 ## Development and CI
 
