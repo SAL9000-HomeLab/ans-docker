@@ -1,0 +1,50 @@
+# {{ ansible_managed }}
+global_defs {
+    router_id {{ inventory_hostname_short }}
+    enable_script_security
+    script_user root
+}
+{% for instance in keepalived_instances if instance.track_tcp_port is defined %}
+
+vrrp_script check_{{ instance.name }} {
+    script "{{ _keepalived_check_script }} {{ keepalived_address }} {{ instance.track_tcp_port }}"
+    interval {{ keepalived_check_interval }}
+    timeout 3
+    fall {{ keepalived_check_fall }}
+    rise {{ keepalived_check_rise }}
+}
+{% endfor %}
+{% for instance in keepalived_instances %}
+
+vrrp_instance {{ instance.name }} {
+    # Every node starts as BACKUP; the IP only moves when its holder fails.
+    state BACKUP
+    nopreempt
+    interface {{ keepalived_interface }}
+    virtual_router_id {{ instance.virtual_router_id }}
+    priority {{ keepalived_priority }}
+    advert_int 1
+
+    # Unicast between known peers only: no multicast, and adverts from other hosts are ignored.
+    unicast_src_ip {{ keepalived_address }}
+{% if _keepalived_peer_addresses | length > 0 %}
+    unicast_peer {
+{%   for address in _keepalived_peer_addresses %}
+        {{ address }}
+{%   endfor %}
+    }
+{% endif %}
+    check_unicast_src
+
+    virtual_ipaddress {
+        {{ instance.virtual_ip }} dev {{ keepalived_interface }}
+    }
+{% if instance.track_tcp_port is defined %}
+
+    # A failing check puts this node in FAULT, so the IP moves to a node where the port answers.
+    track_script {
+        check_{{ instance.name }}
+    }
+{% endif %}
+}
+{% endfor %}

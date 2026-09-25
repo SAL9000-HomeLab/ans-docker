@@ -1,0 +1,82 @@
+---
+# roles/keepalived/tasks/main.yml
+
+- name: Stop keepalived when no floating IPs are configured
+  ansible.builtin.include_tasks: remove.yml
+  when: keepalived_instances | length == 0
+
+- name: Configure floating IPs
+  when: keepalived_instances | length > 0
+  block:
+    - name: Check the floating IP settings
+      ansible.builtin.assert:
+        that:
+          - keepalived_instances | map(attribute='name') | select('match', '^[A-Za-z0-9_-]+$') | list | length
+            == keepalived_instances | length
+          - keepalived_instances | map(attribute='name') | unique | list | length == keepalived_instances | length
+          - keepalived_instances | map(attribute='virtual_ip') | select('search', '/') | list | length
+            == keepalived_instances | length
+          - keepalived_instances | map(attribute='virtual_router_id') | map('int') | select('ge', 1)
+            | select('le', 255) | list | length == keepalived_instances | length
+          - keepalived_instances | map(attribute='virtual_router_id') | unique | list | length
+            == keepalived_instances | length
+        fail_msg: >-
+          Each keepalived_instances entry needs a unique name (letters, digits, _ or -), a virtual_ip with a
+          prefix length (e.g. 192.0.2.50/24) and a unique virtual_router_id between 1 and 255.
+        quiet: true
+      run_once: true
+
+    # Peer addresses come from the peers' facts, which a job with a limit may not have gathered.
+    - name: Gather network facts for peers outside this run
+      ansible.builtin.setup:
+        gather_subset:
+          - "!all"
+          - network
+      delegate_to: "{{ item }}"
+      delegate_facts: true
+      loop: "{{ _keepalived_members | difference(ansible_play_hosts) }}"
+      run_once: true
+
+    - name: Work out peer addresses
+      ansible.builtin.set_fact:
+        # Role defaults aren't in hostvars, so fall back to each peer's own default IPv4 address.
+        _keepalived_peer_addresses: >-
+          {%- set out = [] -%}
+          {%- for peer in _keepalived_peers -%}
+          {%-   set _ = out.append(hostvars[peer].keepalived_address
+                                   | default(hostvars[peer].ansible_default_ipv4.address)) -%}
+          {%- endfor -%}
+          {{ out }}
+
+    - name: Install keepalived
+      ansible.builtin.dnf:
+        name: keepalived
+        state: present
+
+    - name: Install the TCP port check script
+      ansible.builtin.copy:
+        src: check_tcp_port
+        dest: "{{ _keepalived_check_script }}"
+        owner: root
+        group: root
+        mode: "0755"
+
+    - name: Write keepalived.conf
+      ansible.builtin.template:
+        src: keepalived.conf.j2
+        dest: /etc/keepalived/keepalived.conf
+        owner: root
+        group: root
+        mode: "0640"
+        validate: keepalived --config-test --use-file %s
+      notify: Reload keepalived
+
+    - name: Allow VRRP through firewalld
+      ansible.builtin.include_tasks: firewalld.yml
+      when: keepalived_firewalld_manage | bool
+
+    - name: Enable and start keepalived
+      ansible.builtin.systemd_service:
+        name: keepalived
+        enabled: true
+        state: started

@@ -8,6 +8,7 @@ promoting or demoting a node only takes an inventory change and another run.
 | --- | --- |
 | [docker_engine](roles/docker_engine) | Installs Docker CE from Docker's EL repo, writes `daemon.json`, opens the swarm ports in firewalld, installs `nfs-utils` for NFS volumes |
 | [docker_swarm](roles/docker_swarm) | Creates the swarm, joins/promotes/demotes/drains/removes nodes, applies node labels, creates shared overlay networks |
+| [keepalived](roles/keepalived) | Shares floating IPs across the managers; an IP can follow a service published on host-mode ports |
 | [arcane](roles/arcane) | Runs Arcane as a swarm service on a manager, optionally with its own PostgreSQL database, with its secrets stored as Docker secrets |
 
 The values committed in `inventory/` and `group_vars/` are placeholders (`example.com`). Put your real hosts in the
@@ -99,6 +100,18 @@ kind of change a few nodes at a time with `--limit`.
 | `docker_swarm_node_hostname` | unset | Per host. Swarm node name, only needed to remove an unreachable host. |
 | `docker_swarm_overlay_networks` | `[]` | Shared networks that stacks declare `external: true`, e.g. `proxy`. Keys: `name`, `attachable` (default `true`), `encrypted`, `subnet`, `gateway`. Networks are only created, never deleted. |
 | `docker_swarm_manager_group` / `_worker_group` / `_remove_group` | the group names above | |
+
+### keepalived
+
+| Variable | Default | Notes |
+| --- | --- | --- |
+| `keepalived_instances` | `[]` | Floating IPs. Each: `name`, `virtual_ip` (with prefix, e.g. `192.0.2.50/24`), `virtual_router_id` (1–255, unique on the network), optional `track_tcp_port`. Empty stops keepalived. |
+| `keepalived_interface` / `keepalived_address` | the default IPv4 interface and address | Per host. Used for VRRP and for the port check. |
+| `keepalived_priority` | `100` | Per host. |
+| `keepalived_check_interval` / `_fall` / `_rise` | `2` / `2` / `2` | Port check timing; failover takes about interval × fall seconds. |
+| `keepalived_firewalld_manage` / `_zone` | `true` / `public` | Allows the VRRP protocol when firewalld is running. |
+
+See [Floating IPs](#floating-ips) below.
 
 ### arcane
 
@@ -212,6 +225,34 @@ Arcane's Swarm pages work against this manager environment directly. Arcane agen
 per-node container views, are optional. They are registered in the Arcane UI (**Environments**), which issues a
 token for each node, so they aren't deployed by this repo yet.
 
+## Floating IPs
+
+Swarm services that publish ports in `mode: host` (like Nginx Proxy Manager, so it sees real client addresses)
+answer only on the node they run on. The `keepalived` role gives them one address that moves with them:
+
+```yaml
+keepalived_instances:
+  - name: proxy
+    virtual_ip: 192.0.2.50/24    # a free address on the managers' network; point DNS and port-forwards here
+    virtual_router_id: 51
+    track_tcp_port: 443           # the IP goes to whichever manager answers on this port
+```
+
+Each manager checks every 2 seconds whether something accepts connections on its own address and that port. The
+one where the service runs holds the IP; the others stand by. When the service moves to another node, the IP
+follows within a few seconds. Without `track_tcp_port`, the IP stays on any running manager, which suits services
+published through the ingress routing mesh (reachable on every node).
+
+- **Run the service on managers only** (`node.role == manager`), because only managers take part.
+- **VRRP runs unicast** between the managers' own addresses, and adverts from any other host are ignored. There's
+  no password to manage (VRRPv2 sends it in the clear anyway).
+- **The virtual IP must be free** and on the managers' subnet. On Proxmox, allow VRRP (IP protocol 112) if the VM
+  firewall is on.
+- **Removing a manager** (`docker_swarm_remove`) stops keepalived on it, and the other managers drop it as a peer.
+
+Check which node holds an IP with `ip -4 addr show | grep <virtual ip>` on each manager, or
+`journalctl -u keepalived` for state changes (`MASTER`, `BACKUP`, `FAULT`).
+
 ## AWX setup
 
 1. **Project**: this repository.
@@ -259,6 +300,8 @@ Nothing needs to be installed in Python on the nodes: the roles use the `docker`
 
   A task that keeps restarting with `non-zero exit` is crashing; the reason is in `docker service logs`, not in
   `/var/log/messages`.
+- **A floating IP isn't answering:** on each manager, `journalctl -u keepalived -n 20`. `FAULT` on every node
+  means the tracked port answers nowhere: check the service is running (`docker service ps`).
 - **Swarm state:** `sudo docker node ls` on any manager shows every node's status, availability and manager role.
 - **Can't log in to a new Arcane:** the default account is `arcane` / `arcane-admin`, not `admin` / `admin`.
 

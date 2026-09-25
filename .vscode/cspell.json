@@ -49,7 +49,15 @@
         "noqa",
         "Synology",
         "pgdata",
-        "nfstest"
+        "nfstest",
+        "keepalived",
+        "vrrp",
+        "VRRP",
+        "VRRPv2",
+        "unicast",
+        "nopreempt",
+        "vrid",
+        "ncat"
     ],
     "flagWords": [
         "hte"

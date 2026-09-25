@@ -1,0 +1,30 @@
+---
+# roles/keepalived/defaults/main.yml
+
+# Hosts that share the floating IPs. Hosts in keepalived_remove_group are left out
+# (and have keepalived stopped).
+keepalived_group: docker_swarm_managers
+keepalived_remove_group: docker_swarm_remove
+
+# Floating IPs (VRRP instances). Empty = keepalived is stopped and disabled.
+keepalived_instances: []
+#  - name: proxy                 # letters, digits, "_" or "-"
+#    virtual_ip: 192.0.2.50/24   # the address DNS and port-forwards point at
+#    virtual_router_id: 51       # 1-255, unique among VRRP instances on the network
+#    # Follow a service published with host-mode ports: the IP moves to the node where this
+#    # port accepts connections. Leave out to keep the IP on any healthy node.
+#    track_tcp_port: 443
+
+# Per host: the interface and address used for VRRP (and where track_tcp_port is checked).
+keepalived_interface: "{{ ansible_default_ipv4.interface }}"
+keepalived_address: "{{ ansible_default_ipv4.address }}"
+# Per host: with equal priorities, the IP stays where it is until that node fails.
+keepalived_priority: 100
+
+# Health check timing for track_tcp_port: failover takes about interval x fall seconds.
+keepalived_check_interval: 2
+keepalived_check_fall: 2
+keepalived_check_rise: 2
+
+keepalived_firewalld_manage: true
+keepalived_firewalld_zone: public

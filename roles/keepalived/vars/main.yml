@@ -1,0 +1,8 @@
+---
+# roles/keepalived/vars/main.yml (internal, not meant to be overridden)
+
+# reject() rather than difference(): keeps inventory order, so the config doesn't change between runs.
+_keepalived_members: >-
+  {{ groups[keepalived_group] | default([]) | reject('in', groups[keepalived_remove_group] | default([])) | list }}
+_keepalived_peers: "{{ _keepalived_members | reject('equalto', inventory_hostname) | list }}"
+_keepalived_check_script: /usr/libexec/keepalived/check_tcp_port

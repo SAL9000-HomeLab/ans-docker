@@ -1,0 +1,17 @@
+---
+# roles/keepalived/tasks/remove.yml
+#
+# Stops keepalived so this host no longer claims any floating IP. The package and
+# config are left in place.
+
+- name: Check whether keepalived is installed
+  ansible.builtin.systemd_service:
+    name: keepalived
+  register: _keepalived_unit
+
+- name: Stop and disable keepalived
+  ansible.builtin.systemd_service:
+    name: keepalived
+    state: stopped
+    enabled: false
+  when: _keepalived_unit.status.LoadState | default('not-found') == 'loaded'
