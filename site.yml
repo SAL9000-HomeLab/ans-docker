@@ -1,6 +1,7 @@
 ---
 # Builds and maintains the Docker Swarm cluster described by the inventory groups,
-# then deploys Arcane on it. Safe to re-run: every step converges to the inventory.
+# manages floating IPs on the managers, then deploys Arcane. Safe to re-run: every step
+# converges to the inventory.
 #
 # Removing nodes: removal runs from a manager, so a job with a limit must include at
 # least one manager (e.g. --limit 'docker_swarm_managers:old-node.example.com').
@@ -16,6 +17,23 @@
   become: true
   roles:
     - role: docker_swarm
+
+- name: Manage floating IPs
+  hosts: docker_swarm_managers:!docker_swarm_remove
+  become: true
+  roles:
+    - role: keepalived
+
+- name: Release floating IPs on hosts being removed
+  hosts: docker_swarm_remove
+  become: true
+  gather_facts: false
+  ignore_unreachable: true
+  tasks:
+    - name: Stop keepalived
+      ansible.builtin.include_role:
+        name: keepalived
+        tasks_from: remove.yml
 
 - name: Deploy Arcane
   hosts: docker_swarm_managers:!docker_swarm_remove

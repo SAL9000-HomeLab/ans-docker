@@ -1,0 +1,6 @@
+#!/bin/bash
+# Managed by Ansible (roles/keepalived).
+# Usage: check_tcp_port ADDRESS PORT
+# Succeeds when something on this host accepts TCP connections on ADDRESS:PORT,
+# e.g. a swarm service published with host-mode ports running on this node.
+exec timeout 2 bash -c 'exec 3<>"/dev/tcp/$0/$1"' "$1" "$2"

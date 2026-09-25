@@ -2,8 +2,10 @@
 # roles/docker_swarm/vars/main.yml (internal, not meant to be overridden)
 
 _docker_swarm_removals: "{{ groups[docker_swarm_remove_group] | default([]) }}"
+# reject() rather than difference(): keeps inventory order, so the first listed manager is the one
+# that creates a new swarm.
 _docker_swarm_managers: >-
-  {{ groups[docker_swarm_manager_group] | default([]) | difference(_docker_swarm_removals) }}
+  {{ groups[docker_swarm_manager_group] | default([]) | reject('in', _docker_swarm_removals) | list }}
 _docker_swarm_workers: >-
-  {{ groups[docker_swarm_worker_group] | default([]) | difference(_docker_swarm_removals) }}
+  {{ groups[docker_swarm_worker_group] | default([]) | reject('in', _docker_swarm_removals) | list }}
 _docker_swarm_role: "{{ 'manager' if inventory_hostname in _docker_swarm_managers else 'worker' }}"

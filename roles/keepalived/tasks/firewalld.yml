@@ -1,0 +1,16 @@
+---
+# roles/keepalived/tasks/firewalld.yml
+
+- name: Check whether firewalld is running
+  ansible.builtin.systemd_service:
+    name: firewalld
+  register: _keepalived_firewalld
+
+- name: Allow VRRP
+  ansible.posix.firewalld:
+    zone: "{{ keepalived_firewalld_zone }}"
+    protocol: vrrp
+    permanent: true
+    immediate: true
+    state: enabled
+  when: _keepalived_firewalld.status.ActiveState == 'active'

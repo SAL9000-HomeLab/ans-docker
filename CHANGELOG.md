@@ -14,4 +14,7 @@ pushing a `vX.Y.Z` tag; the release workflow publishes the matching section.
   for the services to start and, if they don't, fails with their task errors and recent logs.
 - Added: `arcane_postgres_enabled` runs PostgreSQL as a `db` service in the Arcane stack, so Arcane can use NFS
   storage and fail over between managers. Its password comes from the AWX credential.
+- Added: `keepalived` role: floating IPs shared by the managers over unicast VRRP. With `track_tcp_port`, an IP
+  follows a service published on host-mode ports (e.g. Nginx Proxy Manager).
+- Changed: The manager and worker lists keep inventory order, so the first listed manager creates a new swarm.
 - Added: `site.yml`, a placeholder inventory and group vars, and ansible-lint config.

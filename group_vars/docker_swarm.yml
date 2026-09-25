@@ -17,6 +17,14 @@ docker_swarm_overlay_networks:
   - name: proxy
     attachable: true
 
+# keepalived
+# Floating IPs shared by the managers. "proxy" follows Nginx Proxy Manager (host-mode port 443).
+# keepalived_instances:
+#   - name: proxy
+#     virtual_ip: 192.0.2.50/24
+#     virtual_router_id: 51
+#     track_tcp_port: 443
+
 # arcane
 # Point a DNS name at the managers (ingress publishing answers on every node).
 arcane_app_url: "http://arcane.lab.example.com:3552"
