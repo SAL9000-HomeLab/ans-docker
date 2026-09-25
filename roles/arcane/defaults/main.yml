@@ -69,5 +69,10 @@ arcane_postgres_password: ""      # required with arcane_postgres_enabled
 arcane_oidc_client_secret: ""     # optional
 arcane_admin_static_api_key: ""   # optional, API key for automation
 
+# How long to wait for the services to start after a deploy (retries x delay seconds).
+# A first start pulls images and, with Postgres, initialises the database.
+arcane_deploy_wait_retries: 60
+arcane_deploy_wait_delay: 5
+
 # Directory on the manager that holds the rendered stack file (no secrets in it).
 arcane_config_dir: /opt/arcane

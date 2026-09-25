@@ -10,9 +10,10 @@
 {%   if secrets | length > 0 %}
     secrets:
 {%     for secret in secrets %}
+      # Docker's default 0444: Arcane and Postgres both re-read these after dropping root.
       - source: {{ secret.name }}
         target: {{ secret.key }}
-        mode: 0400
+        mode: 0444
 {%     endfor %}
 {%   endif %}
 {% endmacro %}

@@ -117,6 +117,7 @@ kind of change a few nodes at a time with `--limit`.
 | `arcane_data_volume_driver(_opts)` | `local` / `{}` | e.g. NFS options, like the existing stacks use. |
 | `arcane_networks` | `[]` | External overlay networks to attach (e.g. a reverse-proxy network). |
 | `arcane_environment` | `{}` | Non-secret settings: `TRUSTED_PROXIES`, `OIDC_ENABLED`, `OIDC_ISSUER_URL`, `OIDC_CLIENT_ID`, … |
+| `arcane_deploy_wait_retries` / `_delay` | `60` / `5` | How long to wait for the services to start. If they don't, the job fails with each service's task errors and recent logs. |
 
 Secret values are stored as Docker secrets named `arcane_<key>_<hash>` and passed to Arcane through its `*_FILE`
 variables, so they never appear in the stack file, `docker service inspect`, or the job log. A changed value

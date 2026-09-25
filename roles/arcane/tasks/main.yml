@@ -95,7 +95,7 @@
           - docker
           - stack
           - deploy
-          - --detach=false
+          - --detach=true
           - --with-registry-auth
           - --prune
           - --compose-file
@@ -103,7 +103,45 @@
           - "{{ arcane_stack_name }}"
       when: _arcane_stack_file is changed or _arcane_service.rc != 0
       changed_when: true
-      timeout: 900
+
+    - name: Wait for the Arcane services to run
+      block:
+        - name: Wait for every Arcane service to have all replicas running
+          ansible.builtin.command: >-
+            docker service ls --filter label=com.docker.stack.namespace={{ arcane_stack_name }} --format json
+          register: _arcane_services
+          changed_when: false
+          until: >-
+            _arcane_services.stdout_lines | length > 0
+            and _arcane_services.stdout_lines | map('from_json') | map(attribute='Replicas')
+                | reject('match', '^([1-9][0-9]*)/\1\b') | list | length == 0
+          retries: "{{ arcane_deploy_wait_retries }}"
+          delay: "{{ arcane_deploy_wait_delay }}"
+
+      rescue:
+        - name: Collect task errors and logs from Arcane services
+          ansible.builtin.shell: |
+            set -o pipefail
+            stack_filter="label=com.docker.stack.namespace={{ arcane_stack_name }}"
+            name_fmt='{{ "{{" }}.Name{{ "}}" }}'
+            task_fmt='{{ "{{" }}.Node{{ "}}" }} {{ "{{" }}.CurrentState{{ "}}" }} {{ "{{" }}.Error{{ "}}" }}'
+            for svc in $(docker service ls --filter "$stack_filter" --format "$name_fmt"); do
+              echo "===== $svc tasks"
+              docker service ps --no-trunc --format "$task_fmt" "$svc" | head -6
+              echo "===== $svc logs (last 25 lines)"
+              docker service logs --no-task-ids --raw --tail 25 "$svc" 2>&1 | tail -25
+            done
+          args:
+            executable: /bin/bash
+          register: _arcane_diagnostics
+          changed_when: false
+          failed_when: false
+
+        - name: Report why Arcane isn't running
+          ansible.builtin.fail:
+            msg: >-
+              {{ ['Arcane services did not start. Replicas:'] + _arcane_services.stdout_lines
+                 + _arcane_diagnostics.stdout_lines }}
 
     - name: Remove superseded Arcane secrets
       ansible.builtin.command: docker secret rm {{ item }}
