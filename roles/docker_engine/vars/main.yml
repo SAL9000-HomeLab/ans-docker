@@ -1,0 +1,15 @@
+---
+# roles/docker_engine/vars/main.yml (internal, not meant to be overridden)
+
+_docker_engine_daemon_config: >-
+  {{ docker_engine_daemon_defaults | combine(docker_engine_daemon_options, recursive=True) }}
+
+# With a version pin, docker-ce and docker-ce-cli get "-<version>"; the other packages float.
+_docker_engine_package_list: >-
+  {{
+    docker_engine_packages
+    if docker_engine_version | length == 0
+    else docker_engine_packages
+         | map('regex_replace', '^(docker-ce|docker-ce-cli)$', '\1-' ~ docker_engine_version)
+         | list
+  }}

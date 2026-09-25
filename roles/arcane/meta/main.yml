@@ -1,0 +1,17 @@
+---
+galaxy_info:
+  author: Roland Serman
+  description: Deploy the Arcane Docker management UI as a Docker Swarm stack
+  license: MIT
+  min_ansible_version: "2.15"
+  platforms:
+    - name: EL
+      versions:
+        - "9"
+        - "10"
+  galaxy_tags:
+    - docker
+    - swarm
+    - arcane
+
+dependencies: []

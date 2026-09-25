@@ -1,0 +1,39 @@
+---
+# roles/docker_swarm/defaults/main.yml
+
+# Inventory groups that define the cluster. Membership is the only thing you
+# change to add, promote, demote or remove a node — see the role README.
+docker_swarm_manager_group: docker_swarm_managers
+docker_swarm_worker_group: docker_swarm_workers
+docker_swarm_remove_group: docker_swarm_remove
+
+# Address other nodes use to reach this one (IP or interface name).
+docker_swarm_advertise_addr: "{{ ansible_default_ipv4.address }}"
+
+# Extra arguments for `docker swarm init`, used once when the cluster is created,
+# e.g. ["--default-addr-pool", "10.200.0.0/16", "--data-path-port", "4789"].
+docker_swarm_init_options: []
+
+# Per-host settings (set in host_vars or the AWX host's variables).
+# Labels are used by placement constraints (node.labels.<key> == <value>).
+docker_swarm_node_labels: {}
+# true = also remove labels that aren't in docker_swarm_node_labels.
+docker_swarm_node_labels_exclusive: false
+# active | pause | drain — "drain" moves workloads off a node for maintenance.
+docker_swarm_node_availability: active
+# Swarm node name if it differs from the inventory name or its short form.
+# Only used to find a node being removed when Ansible can't reach it.
+# docker_swarm_node_hostname: r10-de001
+
+# Overlay networks shared between stacks (declared `external: true` in compose).
+# Existing networks are left alone; networks missing from this list aren't deleted.
+docker_swarm_overlay_networks: []
+#  - name: proxy
+#    attachable: true    # default true; lets standalone containers join
+#    encrypted: false    # IPsec between nodes; needs docker_engine_firewalld_allow_esp
+#    subnet: 10.201.0.0/24
+#    gateway: 10.201.0.1
+
+# Removal: how long to wait for a drained node's tasks to move elsewhere.
+docker_swarm_drain_retries: 60
+docker_swarm_drain_delay: 5

@@ -1,0 +1,97 @@
+---
+# roles/docker_swarm/tasks/remove.yml
+#
+# Removes one host (_docker_swarm_remove_host) from the swarm: demote, drain, wait
+# for its tasks to move, leave, then delete the node. Runs once, from the leader.
+# If Ansible can't reach the host (e.g. it's already gone), it is only deleted
+# once the swarm itself reports it as down.
+
+- name: Read swarm state of {{ _docker_swarm_remove_host }}
+  ansible.builtin.command: docker info --format json
+  delegate_to: "{{ _docker_swarm_remove_host }}"
+  register: _docker_swarm_rm_info
+  changed_when: false
+  failed_when: false
+  ignore_unreachable: true
+
+- name: List swarm nodes
+  ansible.builtin.include_tasks: nodes.yml
+
+- name: "Find the node in the swarm: {{ _docker_swarm_remove_host }}"
+  ansible.builtin.set_fact:
+    _docker_swarm_rm_reachable: "{{ _docker_swarm_rm_ok }}"
+    _docker_swarm_rm_node: >-
+      {%- set local_id = (_docker_swarm_rm_info.stdout | from_json).Swarm.NodeID if _docker_swarm_rm_ok else '' -%}
+      {%- set names = [
+            _docker_swarm_remove_host,
+            _docker_swarm_remove_host.split('.')[0],
+            hostvars[_docker_swarm_remove_host].docker_swarm_node_hostname | default('')
+          ] | select | list -%}
+      {%- if local_id -%}
+      {{-   _docker_swarm_nodes[local_id] | default({}) -}}
+      {%- else -%}
+      {{-   (_docker_swarm_nodes.values() | selectattr('Hostname', 'in', names) | list + [{}])[0] -}}
+      {%- endif -%}
+  vars:
+    _docker_swarm_rm_ok: >-
+      {{ not (_docker_swarm_rm_info.unreachable | default(false)) and (_docker_swarm_rm_info.rc | default(1)) == 0 }}
+
+- name: "Report a host that isn't a swarm member: {{ _docker_swarm_remove_host }}"
+  ansible.builtin.debug:
+    msg: "{{ _docker_swarm_remove_host }} isn't in the swarm; nothing to remove."
+  when: _docker_swarm_rm_node | length == 0
+
+- name: "Remove from the swarm: {{ _docker_swarm_remove_host }}"
+  when: _docker_swarm_rm_node | length > 0
+  delegate_to: "{{ _docker_swarm_leader }}"
+  block:
+    - name: Stop if the node is up but Ansible can't reach it
+      ansible.builtin.assert:
+        that: _docker_swarm_rm_reachable or _docker_swarm_rm_node.Status | lower == 'down'
+        fail_msg: >-
+          The swarm reports {{ _docker_swarm_remove_host }} as {{ _docker_swarm_rm_node.Status }}, but Ansible
+          can't reach it to make it leave. Fix access, or shut the host down and run again.
+        quiet: true
+
+    - name: Demote {{ _docker_swarm_remove_host }}
+      ansible.builtin.command: docker node demote {{ _docker_swarm_rm_node.ID }}
+      when: _docker_swarm_rm_node.ManagerStatus | length > 0
+      changed_when: true
+
+    - name: Drain {{ _docker_swarm_remove_host }}
+      ansible.builtin.command: docker node update --availability drain {{ _docker_swarm_rm_node.ID }}
+      when: _docker_swarm_rm_node.Availability | lower != 'drain'
+      changed_when: true
+
+    - name: Wait for tasks to leave {{ _docker_swarm_remove_host }}
+      ansible.builtin.command: >-
+        docker node ps {{ _docker_swarm_rm_node.ID }} --filter desired-state=running --format '{{ "{{" }}.ID{{ "}}" }}'
+      register: _docker_swarm_rm_tasks
+      until: _docker_swarm_rm_tasks.stdout | trim | length == 0
+      retries: "{{ docker_swarm_drain_retries }}"
+      delay: "{{ docker_swarm_drain_delay }}"
+      changed_when: false
+      when: _docker_swarm_rm_reachable
+
+    - name: Leave the swarm on {{ _docker_swarm_remove_host }}
+      ansible.builtin.command: docker swarm leave
+      delegate_to: "{{ _docker_swarm_remove_host }}"
+      register: _docker_swarm_rm_leave
+      # A just-demoted manager can take a moment to become a worker.
+      retries: 5
+      delay: 3
+      until: _docker_swarm_rm_leave is succeeded
+      changed_when: true
+      when: _docker_swarm_rm_reachable
+
+    - name: "Wait for the swarm to mark the node down: {{ _docker_swarm_remove_host }}"
+      ansible.builtin.command: docker node inspect {{ _docker_swarm_rm_node.ID }}
+      register: _docker_swarm_rm_inspect
+      until: (_docker_swarm_rm_inspect.stdout | from_json)[0].Status.State == 'down'
+      retries: 24
+      delay: 5
+      changed_when: false
+
+    - name: Delete node {{ _docker_swarm_remove_host }}
+      ansible.builtin.command: docker node rm {{ _docker_swarm_rm_node.ID }}
+      changed_when: true

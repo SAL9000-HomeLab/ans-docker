@@ -1,0 +1,166 @@
+---
+# roles/arcane/tasks/main.yml
+#
+# Deploys Arcane as a swarm stack. Run it against swarm managers; everything runs
+# once, on the first manager in the play.
+
+- name: Deploy Arcane
+  run_once: true
+  block:
+    - name: Check the encryption key
+      ansible.builtin.assert:
+        that:
+          - arcane_encryption_key | length >= 32
+          - arcane_encryption_key != 'arcane-dev-key-32-characters!!!'
+        fail_msg: >-
+          Set arcane_encryption_key (e.g. `openssl rand -hex 32`) from an AWX credential or vault.
+          Keep it: changing it later makes Arcane's stored credentials unreadable.
+        quiet: true
+      no_log: true
+
+    - name: Check the database settings
+      ansible.builtin.assert:
+        that:
+          - arcane_postgres_password | length > 0
+          - arcane_database_url | length == 0
+        fail_msg: >-
+          arcane_postgres_enabled needs arcane_postgres_password (from an AWX credential or vault),
+          and can't be combined with arcane_database_url.
+        quiet: true
+      when: arcane_postgres_enabled | bool
+      no_log: true
+
+    - name: List Arcane secrets
+      ansible.builtin.command: >-
+        docker secret ls --filter label=io.github.sal9000.arcane.stack={{ arcane_stack_name }} --format json
+      register: _arcane_secret_ls
+      changed_when: false
+
+    - name: Create Arcane secrets
+      ansible.builtin.command:
+        argv:
+          - docker
+          - secret
+          - create
+          - --label
+          - io.github.sal9000.arcane.stack={{ arcane_stack_name }}
+          - "{{ item.name }}"
+          - "-"
+        stdin: "{{ item.value }}"
+        stdin_add_newline: false
+      loop: "{{ _arcane_secrets }}"
+      loop_control:
+        label: "{{ item.name }}"
+      when: item.name not in (_arcane_secret_ls.stdout_lines | map('from_json') | map(attribute='Name') | list)
+      changed_when: true
+      no_log: true
+
+    - name: Create {{ arcane_config_dir }}
+      ansible.builtin.file:
+        path: "{{ arcane_config_dir }}"
+        state: directory
+        owner: root
+        group: root
+        mode: "0700"
+
+    - name: Render the Arcane stack file
+      ansible.builtin.template:
+        src: arcane-stack.yml.j2
+        dest: "{{ arcane_config_dir }}/arcane-stack.yml"
+        owner: root
+        group: root
+        mode: "0600"
+      register: _arcane_stack_file
+
+    # A constraint no node meets would leave `docker stack deploy --detach=false` waiting forever.
+    - name: Check a node has each label Arcane is constrained to
+      ansible.builtin.command: >-
+        docker node ls -q --filter node.label={{ item | regex_replace(_arcane_label_re, '\1=\2') }}
+      loop: "{{ _arcane_all_constraints | select('match', _arcane_label_re) | list }}"
+      vars:
+        _arcane_label_re: '^node\.labels\.(\S+)\s*==\s*(\S+)$'
+      register: _arcane_label_nodes
+      changed_when: false
+      failed_when: _arcane_label_nodes.rc != 0 or _arcane_label_nodes.stdout | trim | length == 0
+
+    - name: Check whether the Arcane service exists
+      ansible.builtin.command: docker service inspect {{ arcane_stack_name }}_arcane
+      register: _arcane_service
+      changed_when: false
+      failed_when: false
+
+    - name: Deploy the Arcane stack
+      ansible.builtin.command:
+        argv:
+          - docker
+          - stack
+          - deploy
+          - --detach=true
+          - --with-registry-auth
+          - --prune
+          - --compose-file
+          - "{{ arcane_config_dir }}/arcane-stack.yml"
+          - "{{ arcane_stack_name }}"
+      when: _arcane_stack_file is changed or _arcane_service.rc != 0
+      changed_when: true
+
+    - name: Wait for the Arcane services to run
+      block:
+        - name: Wait for every Arcane service to have all replicas running
+          ansible.builtin.command: >-
+            docker service ls --filter label=com.docker.stack.namespace={{ arcane_stack_name }} --format json
+          register: _arcane_services
+          changed_when: false
+          until: _arcane_services.stdout_lines | length > 0 and _arcane_not_ready | length == 0
+          retries: "{{ arcane_deploy_wait_retries }}"
+          delay: "{{ arcane_deploy_wait_delay }}"
+          vars:
+            # Services whose running count ("1/1", "1/1 (max 1 per node)") isn't the full, non-zero target.
+            _arcane_not_ready: >-
+              {%- set out = [] -%}
+              {%- for svc in _arcane_services.stdout_lines | map('from_json') -%}
+              {%-   set counts = svc.Replicas.split(' ')[0].split('/') -%}
+              {%-   if counts | length != 2 or counts[0] != counts[1] or counts[1] == '0' -%}
+              {%-     set _ = out.append(svc.Name) -%}
+              {%-   endif -%}
+              {%- endfor -%}
+              {{ out }}
+
+      rescue:
+        - name: Collect task errors and logs from Arcane services
+          ansible.builtin.shell: |
+            set -o pipefail
+            stack_filter="label=com.docker.stack.namespace={{ arcane_stack_name }}"
+            name_fmt='{{ "{{" }}.Name{{ "}}" }}'
+            task_fmt='{{ "{{" }}.Node{{ "}}" }} {{ "{{" }}.CurrentState{{ "}}" }} {{ "{{" }}.Error{{ "}}" }}'
+            for svc in $(docker service ls --filter "$stack_filter" --format "$name_fmt"); do
+              echo "===== $svc tasks"
+              docker service ps --no-trunc --format "$task_fmt" "$svc" | head -6
+              echo "===== $svc logs (last 25 lines)"
+              docker service logs --no-task-ids --raw --tail 25 "$svc" 2>&1 | tail -25
+            done
+          args:
+            executable: /bin/bash
+          register: _arcane_diagnostics
+          changed_when: false
+          failed_when: false
+
+        - name: Report why Arcane isn't running
+          ansible.builtin.fail:
+            msg: >-
+              {{ ['Arcane services did not start. Replicas:'] + _arcane_services.stdout_lines
+                 + _arcane_diagnostics.stdout_lines }}
+
+    - name: Remove superseded Arcane secrets
+      ansible.builtin.command: docker secret rm {{ item }}
+      loop: >-
+        {{ _arcane_secret_ls.stdout_lines | map('from_json') | map(attribute='Name')
+           | difference(_arcane_secrets | map(attribute='name')) }}
+      changed_when: true
+
+    - name: Show where Arcane is
+      ansible.builtin.debug:
+        msg: >-
+          Arcane is at {{ arcane_app_url }}. On a new install sign in as arcane / arcane-admin;
+          Arcane then asks for a new password.
+      when: _arcane_service.rc != 0

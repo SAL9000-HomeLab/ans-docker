@@ -1,0 +1,30 @@
+---
+# roles/docker_swarm/tasks/labels.yml
+
+- name: Read node labels
+  ansible.builtin.command: docker node inspect {{ _docker_swarm_node.ID }}
+  delegate_to: "{{ _docker_swarm_leader }}"
+  register: _docker_swarm_node_inspect
+  changed_when: false
+
+- name: Work out label changes
+  ansible.builtin.set_fact:
+    _docker_swarm_label_args: >-
+      {%- set current = (_docker_swarm_node_inspect.stdout | from_json)[0].Spec.Labels | default({}, true) -%}
+      {%- set args = [] -%}
+      {%- for key, value in docker_swarm_node_labels.items() if current.get(key) != (value | string) -%}
+      {%-   set _ = args.extend(['--label-add', key ~ '=' ~ value]) -%}
+      {%- endfor -%}
+      {%- if docker_swarm_node_labels_exclusive | bool -%}
+      {%-   for key in current if key not in docker_swarm_node_labels -%}
+      {%-     set _ = args.extend(['--label-rm', key]) -%}
+      {%-   endfor -%}
+      {%- endif -%}
+      {{ args }}
+
+- name: Update node labels
+  ansible.builtin.command:
+    argv: "{{ ['docker', 'node', 'update'] + _docker_swarm_label_args + [_docker_swarm_node.ID] }}"
+  delegate_to: "{{ _docker_swarm_leader }}"
+  when: _docker_swarm_label_args | length > 0
+  changed_when: true

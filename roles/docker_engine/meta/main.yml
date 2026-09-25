@@ -1,0 +1,16 @@
+---
+galaxy_info:
+  author: Roland Serman
+  description: Install and configure Docker CE on Rocky Linux / RHEL
+  license: MIT
+  min_ansible_version: "2.15"
+  platforms:
+    - name: EL
+      versions:
+        - "9"
+        - "10"
+  galaxy_tags:
+    - docker
+    - containers
+
+dependencies: []

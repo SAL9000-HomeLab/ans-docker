@@ -1,0 +1,78 @@
+---
+# roles/arcane/defaults/main.yml
+
+arcane_stack_name: arcane
+arcane_image: ghcr.io/getarcaneapp/manager
+arcane_version: v2.13.1
+
+# Web UI port. "ingress" publishes it on every node (routing mesh), so the URL keeps
+# working wherever the task runs; "host" publishes it only on the node running it.
+arcane_port: 3552
+arcane_publish_mode: ingress
+
+# URL users reach Arcane on (used for links and OIDC redirects).
+arcane_app_url: "http://{{ inventory_hostname }}:{{ arcane_port }}"
+arcane_timezone: Etc/UTC
+
+# Where the single Arcane replica may run. It needs a manager to control the swarm.
+# With the default local data volume, pin it to one node with a label (set
+# docker_swarm_node_labels: {arcane: "true"} on that manager) so it keeps its data.
+# With shared storage (see arcane_data_volume_driver_opts), drop the label constraint
+# so it can fail over to any manager.
+arcane_placement_constraints:
+  - node.role == manager
+  - node.labels.arcane == true
+
+# Data volume (/app/data: database, projects, git checkouts).
+# Arcane's default SQLite database must not live on NFS; for shared storage use
+# PostgreSQL instead (arcane_postgres_enabled or arcane_database_url).
+arcane_data_volume_driver: local
+arcane_data_volume_driver_opts: {}
+#  type: nfs
+#  o: addr=nas01.example.com,nfsvers=4,rw
+#  device: ":/volume1/docker/arcane/data"
+
+# Optional PostgreSQL database, run as a "db" service in the same stack. When enabled,
+# the role builds Arcane's DATABASE_URL itself; leave arcane_database_url empty.
+# Enabling it on an existing install starts Arcane with an empty database.
+arcane_postgres_enabled: false
+arcane_postgres_image: docker.io/postgres
+# Major version upgrades need a dump and restore; don't just bump this.
+arcane_postgres_version: "18-alpine"
+arcane_postgres_db: arcane
+arcane_postgres_user: arcane
+# Data volume for /var/lib/postgresql. For failover, use NFS (mounted "hard", the default).
+arcane_postgres_volume_driver: local
+arcane_postgres_volume_driver_opts: {}
+#  type: nfs
+#  o: addr=nas01.example.com,nfsvers=4,rw
+#  device: ":/volume1/docker/arcane/postgres"
+# Where the database may run; defaults to wherever Arcane may run.
+arcane_postgres_placement_constraints: "{{ arcane_placement_constraints }}"
+
+# Existing overlay networks to attach Arcane to (e.g. a reverse-proxy network).
+arcane_networks: []
+
+# Extra, non-secret environment variables, e.g.
+#   TRUSTED_PROXIES: "192.0.2.10"
+#   OIDC_ENABLED: "true"
+#   OIDC_ISSUER_URL: https://auth.example.com/application/o/arcane/
+#   OIDC_CLIENT_ID: arcane
+# See https://getarcane.app/docs/configuration/environment
+arcane_environment: {}
+
+# Secrets. Never commit these — supply them from an AWX credential (or vault).
+# They are stored as Docker secrets and passed to Arcane as *_FILE variables.
+arcane_encryption_key: ""         # required; generate once with `openssl rand -hex 32` and keep it
+arcane_database_url: ""           # optional, external postgres://user:pass@host:5432/arcane
+arcane_postgres_password: ""      # required with arcane_postgres_enabled
+arcane_oidc_client_secret: ""     # optional
+arcane_admin_static_api_key: ""   # optional, API key for automation
+
+# How long to wait for the services to start after a deploy (retries x delay seconds).
+# A first start pulls images and, with Postgres, initialises the database.
+arcane_deploy_wait_retries: 60
+arcane_deploy_wait_delay: 5
+
+# Directory on the manager that holds the rendered stack file (no secrets in it).
+arcane_config_dir: /opt/arcane

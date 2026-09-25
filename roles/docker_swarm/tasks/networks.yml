@@ -1,0 +1,26 @@
+---
+# roles/docker_swarm/tasks/networks.yml
+
+- name: List overlay networks
+  ansible.builtin.command: docker network ls --filter driver=overlay --format json
+  delegate_to: "{{ _docker_swarm_leader }}"
+  register: _docker_swarm_networks
+  changed_when: false
+  run_once: true
+
+- name: Create missing overlay networks
+  ansible.builtin.command:
+    argv: >-
+      {{ ['docker', 'network', 'create', '--driver', 'overlay']
+         + (['--attachable'] if item.attachable | default(true) | bool else [])
+         + (['--opt', 'encrypted'] if item.encrypted | default(false) | bool else [])
+         + (['--subnet', item.subnet] if item.subnet is defined else [])
+         + (['--gateway', item.gateway] if item.gateway is defined else [])
+         + [item.name] }}
+  delegate_to: "{{ _docker_swarm_leader }}"
+  loop: "{{ docker_swarm_overlay_networks }}"
+  loop_control:
+    label: "{{ item.name }}"
+  when: item.name not in (_docker_swarm_networks.stdout_lines | map('from_json') | map(attribute='Name') | list)
+  changed_when: true
+  run_once: true
