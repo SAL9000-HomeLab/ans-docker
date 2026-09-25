@@ -27,12 +27,15 @@
   delegate_facts: true
   run_once: true
 
+# Role defaults aren't in hostvars, so the first manager's docker_swarm_advertise_addr
+# is only there if set on that host; otherwise use its own default IPv4 address.
 - name: Initialise the swarm on {{ _docker_swarm_managers[0] }}
   ansible.builtin.command:
-    argv: >-
-      {{ ['docker', 'swarm', 'init',
-          '--advertise-addr', hostvars[_docker_swarm_managers[0]].docker_swarm_advertise_addr]
-         + docker_swarm_init_options }}
+    argv: "{{ ['docker', 'swarm', 'init', '--advertise-addr', _docker_swarm_init_addr] + docker_swarm_init_options }}"
+  vars:
+    _docker_swarm_init_addr: >-
+      {{ hostvars[_docker_swarm_managers[0]].docker_swarm_advertise_addr
+         | default(hostvars[_docker_swarm_managers[0]].ansible_default_ipv4.address) }}
   delegate_to: "{{ _docker_swarm_managers[0] }}"
   changed_when: true
   run_once: true
