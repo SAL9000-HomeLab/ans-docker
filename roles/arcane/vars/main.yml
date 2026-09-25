@@ -4,16 +4,37 @@
 # Secrets that have a value. Each Docker secret name ends in a hash of its value, so
 # changing a value creates a new secret (they're immutable) and redeploys the stack.
 # The hash is salted with the encryption key so names don't reveal weak values.
+# `service` is the stack service that reads the secret (as <env>_FILE).
 _arcane_secret_sources:
-  - {env: ENCRYPTION_KEY, key: encryption_key, value: "{{ arcane_encryption_key }}"}
-  - {env: DATABASE_URL, key: database_url, value: "{{ arcane_database_url }}"}
-  - {env: OIDC_CLIENT_SECRET, key: oidc_client_secret, value: "{{ arcane_oidc_client_secret }}"}
-  - {env: ADMIN_STATIC_API_KEY, key: admin_static_api_key, value: "{{ arcane_admin_static_api_key }}"}
+  - {service: arcane, env: ENCRYPTION_KEY, key: encryption_key, value: "{{ arcane_encryption_key }}"}
+  - {service: arcane, env: DATABASE_URL, key: database_url, value: "{{ _arcane_database_url }}"}
+  - {service: arcane, env: OIDC_CLIENT_SECRET, key: oidc_client_secret, value: "{{ arcane_oidc_client_secret }}"}
+  - {service: arcane, env: ADMIN_STATIC_API_KEY, key: admin_static_api_key, value: "{{ arcane_admin_static_api_key }}"}
+  - service: db
+    env: POSTGRES_PASSWORD
+    key: postgres_password
+    value: "{{ arcane_postgres_password if arcane_postgres_enabled | bool else '' }}"
+
+# With the bundled database, Arcane reaches it as "db" on the stack network. The password
+# is URL-encoded ("/" too, which would otherwise end the host part of the URL).
+_arcane_database_url: >-
+  {{
+    'postgres://' ~ (arcane_postgres_user | urlencode) ~ ':'
+    ~ (arcane_postgres_password | urlencode | replace('/', '%2F'))
+    ~ '@db:5432/' ~ arcane_postgres_db ~ '?sslmode=disable'
+    if arcane_postgres_enabled | bool else arcane_database_url
+  }}
+
+# Every constraint the stack's services use (checked before deploying).
+_arcane_all_constraints: >-
+  {{ (arcane_placement_constraints
+      + (arcane_postgres_placement_constraints if arcane_postgres_enabled | bool else [])) | unique }}
 
 _arcane_secrets: >-
   {%- set out = [] -%}
   {%- for s in _arcane_secret_sources if s.value | length > 0 -%}
   {%-   set _ = out.append({
+          'service': s.service,
           'env': s.env,
           'key': s.key,
           'value': s.value,

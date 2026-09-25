@@ -18,6 +18,18 @@
         quiet: true
       no_log: true
 
+    - name: Check the database settings
+      ansible.builtin.assert:
+        that:
+          - arcane_postgres_password | length > 0
+          - arcane_database_url | length == 0
+        fail_msg: >-
+          arcane_postgres_enabled needs arcane_postgres_password (from an AWX credential or vault),
+          and can't be combined with arcane_database_url.
+        quiet: true
+      when: arcane_postgres_enabled | bool
+      no_log: true
+
     - name: List Arcane secrets
       ansible.builtin.command: >-
         docker secret ls --filter label=io.github.sal9000.arcane.stack={{ arcane_stack_name }} --format json
@@ -64,7 +76,7 @@
     - name: Check a node has each label Arcane is constrained to
       ansible.builtin.command: >-
         docker node ls -q --filter node.label={{ item | regex_replace(_arcane_label_re, '\1=\2') }}
-      loop: "{{ arcane_placement_constraints | select('match', _arcane_label_re) | list }}"
+      loop: "{{ _arcane_all_constraints | select('match', _arcane_label_re) | list }}"
       vars:
         _arcane_label_re: '^node\.labels\.(\S+)\s*==\s*(\S+)$'
       register: _arcane_label_nodes
@@ -85,6 +97,7 @@
           - deploy
           - --detach=false
           - --with-registry-auth
+          - --prune
           - --compose-file
           - "{{ arcane_config_dir }}/arcane-stack.yml"
           - "{{ arcane_stack_name }}"

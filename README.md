@@ -8,7 +8,7 @@ promoting or demoting a node only takes an inventory change and another run.
 | --- | --- |
 | [docker_engine](roles/docker_engine) | Installs Docker CE from Docker's EL repo, writes `daemon.json`, opens the swarm ports in firewalld, installs `nfs-utils` for NFS volumes |
 | [docker_swarm](roles/docker_swarm) | Creates the swarm, joins/promotes/demotes/drains/removes nodes, applies node labels, creates shared overlay networks |
-| [arcane](roles/arcane) | Runs Arcane as a swarm service on a manager, with its secrets stored as Docker secrets |
+| [arcane](roles/arcane) | Runs Arcane as a swarm service on a manager, optionally with its own PostgreSQL database, with its secrets stored as Docker secrets |
 
 The values committed in `inventory/` and `group_vars/` are placeholders (`example.com`). Put your real hosts in the
 AWX inventory and your secrets in AWX credentials, or in local files that are gitignored (`local/`,
@@ -101,7 +101,13 @@ kind of change a few nodes at a time with `--limit`.
 | Variable | Default | Notes |
 | --- | --- | --- |
 | `arcane_encryption_key` | **required, secret** | `openssl rand -hex 32`, generated once. Changing it later makes Arcane's stored credentials unreadable. |
-| `arcane_database_url` | `""` (SQLite) | Secret. PostgreSQL URL; needed if the data volume is shared storage. |
+| `arcane_postgres_enabled` | `false` | Run PostgreSQL as a `db` service in the Arcane stack. See below. |
+| `arcane_postgres_password` | `""` | Secret. Required with `arcane_postgres_enabled`. |
+| `arcane_postgres_version` | `18-alpine` | Tag of `docker.io/postgres`. Major upgrades need a dump and restore. |
+| `arcane_postgres_db` / `arcane_postgres_user` | `arcane` / `arcane` | |
+| `arcane_postgres_volume_driver(_opts)` | `local` / `{}` | Volume for `/var/lib/postgresql`, e.g. NFS options. |
+| `arcane_postgres_placement_constraints` | same as `arcane_placement_constraints` | Where the database may run. |
+| `arcane_database_url` | `""` (SQLite) | Secret. URL of an external PostgreSQL database. Not used with `arcane_postgres_enabled`. |
 | `arcane_oidc_client_secret` | `""` | Secret. |
 | `arcane_admin_static_api_key` | `""` | Secret. Fixed API key for automation. |
 | `arcane_version` | `v2.13.1` | Image tag of `ghcr.io/getarcaneapp/manager`. |
@@ -122,19 +128,48 @@ Arcane needs a manager node, because it drives the swarm through the local Docke
 (SQLite database, projects) is in a local volume, so it's pinned to the manager labelled `arcane=true`. If that
 node fails, the swarm and every stack keep running; only the Arcane UI is down until the node returns.
 
-To let Arcane fail over to any manager, give it shared storage and a database that can live there:
+To let Arcane fail over to any manager, it needs shared storage and PostgreSQL instead of SQLite (keep SQLite off
+NFS: its locking isn't reliable there). The simplest way is the bundled database:
 
 ```yaml
-arcane_database_url: "postgres://arcane:...@db.example.com:5432/arcane"   # from an AWX credential
+arcane_postgres_enabled: true            # arcane_postgres_password comes from the AWX credential
+arcane_placement_constraints:
+  - node.role == manager                 # drop the arcane=true label: any manager will do
 arcane_data_volume_driver_opts:
   type: nfs
   o: addr=nas01.example.com,nfsvers=4,rw
   device: ":/volume1/docker/arcane/data"
-arcane_placement_constraints:
-  - node.role == manager
+arcane_postgres_volume_driver_opts:
+  type: nfs
+  o: addr=nas01.example.com,nfsvers=4,rw
+  device: ":/volume1/docker/arcane/postgres"
 ```
 
-Keep SQLite off NFS: its locking isn't reliable there.
+This adds a `db` service (`postgres:18-alpine`) to the `arcane` stack. Arcane connects to it as `db` over the
+stack's own network, so no database port is published; the role builds the connection URL and stores it, like the
+password, as a Docker secret. Both services then move to another manager if theirs fails. Create the two NFS
+directories first.
+
+Things to know before you enable it:
+
+- **Leave the `arcane` stack alone in the UI.** Arcane lists its own stack like any other. Stopping or removing it
+  there takes Arcane down with it; run the job again to restore it.
+- **Enabling it starts Arcane with an empty database.** Nothing is migrated from SQLite, so settings, users and
+  environments have to be set up again. Enable it on a new install if you can.
+- **Start order.** Swarm ignores `depends_on`, so Arcane can start before the database is ready; it restarts
+  until the database answers, usually within a minute.
+- **NFS.** Mount with `hard` (the Linux default; don't add `soft`). The Postgres image changes the owner of its
+  data directory on start, so the export must allow root to change ownership (no root squashing), as the
+  existing stacks' Postgres volumes already need.
+- **One database server only.** The service runs one replica and stops the old one before starting a new one.
+  Never scale it up: two servers on the same data directory corrupt it.
+- **The NAS becomes the single point of failure** for Arcane, as it already is for the NFS-backed stacks.
+- **Back it up**, e.g. with a `pg_dump` job or a backup sidecar like the Semaphore stack's.
+
+To use a PostgreSQL server outside the swarm instead, leave `arcane_postgres_enabled` off and set
+`arcane_database_url` (from the credential).
+
+Turning `arcane_postgres_enabled` off again removes the `db` service, but not its volume or data.
 
 On a new install, sign in as `admin` / `admin` and change the password immediately.
 
@@ -155,12 +190,14 @@ token for each node, so they aren't deployed by this repo yet.
      # Input configuration
      fields:
        - {id: encryption_key, label: Encryption key, type: string, secret: true}
-       - {id: database_url, label: Database URL, type: string, secret: true}
+       - {id: postgres_password, label: Bundled PostgreSQL password, type: string, secret: true}
+       - {id: database_url, label: External database URL, type: string, secret: true}
        - {id: oidc_client_secret, label: OIDC client secret, type: string, secret: true}
      required: [encryption_key]
      # Injector configuration
      extra_vars:
        arcane_encryption_key: "{{ encryption_key }}"
+       arcane_postgres_password: "{{ postgres_password | default('') }}"
        arcane_database_url: "{{ database_url | default('') }}"
        arcane_oidc_client_secret: "{{ oidc_client_secret | default('') }}"
      ```

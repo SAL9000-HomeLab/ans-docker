@@ -1,6 +1,30 @@
 ---
 # {{ ansible_managed }}
-# Deployed with: docker stack deploy -c {{ arcane_config_dir }}/arcane-stack.yml {{ arcane_stack_name }}
+# Deployed with: docker stack deploy --prune -c {{ arcane_config_dir }}/arcane-stack.yml {{ arcane_stack_name }}
+{% macro env_value(value) %}{{ ((value | lower) if value is boolean else (value | string)) | to_json }}{% endmacro %}
+{% macro secrets_for(service) %}
+{%   set secrets = _arcane_secrets | selectattr('service', 'equalto', service) | list %}
+{%   for secret in secrets %}
+      {{ secret.env }}_FILE: "/run/secrets/{{ secret.key }}"
+{%   endfor %}
+{%   if secrets | length > 0 %}
+    secrets:
+{%     for secret in secrets %}
+      - source: {{ secret.name }}
+        target: {{ secret.key }}
+        mode: 0400
+{%     endfor %}
+{%   endif %}
+{% endmacro %}
+{% macro volume(driver, opts) %}
+    driver: {{ driver }}
+{%   if opts | length > 0 %}
+    driver_opts:
+{%     for name, value in opts.items() %}
+      {{ name }}: {{ env_value(value) }}
+{%     endfor %}
+{%   endif %}
+{% endmacro %}
 {% set env = {'APP_URL': arcane_app_url, 'TZ': arcane_timezone} | combine(arcane_environment) %}
 services:
   arcane:
@@ -12,19 +36,9 @@ services:
         mode: {{ arcane_publish_mode }}
     environment:
 {% for name, value in env.items() %}
-      {{ name }}: {{ ((value | lower) if value is boolean else (value | string)) | to_json }}
+      {{ name }}: {{ env_value(value) }}
 {% endfor %}
-{% for secret in _arcane_secrets %}
-      {{ secret.env }}_FILE: "/run/secrets/{{ secret.key }}"
-{% endfor %}
-{% if _arcane_secrets | length > 0 %}
-    secrets:
-{%   for secret in _arcane_secrets %}
-      - source: {{ secret.name }}
-        target: {{ secret.key }}
-        mode: 0400
-{%   endfor %}
-{% endif %}
+{{ secrets_for('arcane') }}
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - data:/app/data
@@ -46,15 +60,48 @@ services:
       update_config:
         order: stop-first
         failure_action: rollback
+{% if arcane_postgres_enabled | bool %}
+
+  # Swarm ignores depends_on: Arcane restarts until this answers.
+  db:
+    image: {{ (arcane_postgres_image ~ ':' ~ arcane_postgres_version) | to_json }}
+    environment:
+      POSTGRES_DB: {{ arcane_postgres_db | to_json }}
+      POSTGRES_USER: {{ arcane_postgres_user | to_json }}
+      TZ: {{ arcane_timezone | to_json }}
+{{ secrets_for('db') }}
+    volumes:
+      - db:/var/lib/postgresql
+    networks:
+      - default
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -q -d \"$$POSTGRES_DB\" -U \"$$POSTGRES_USER\""]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    stop_grace_period: 1m
+    deploy:
+      # Never more than one: two servers on the same data directory corrupt it.
+      replicas: 1
+      placement:
+        constraints:
+{%   for constraint in arcane_postgres_placement_constraints %}
+          - {{ constraint | to_json }}
+{%   endfor %}
+      restart_policy:
+        condition: any
+      update_config:
+        order: stop-first
+        failure_action: rollback
+{% endif %}
 
 volumes:
   data:
-    driver: {{ arcane_data_volume_driver }}
-{% if arcane_data_volume_driver_opts | length > 0 %}
-    driver_opts:
-{%   for name, value in arcane_data_volume_driver_opts.items() %}
-      {{ name }}: {{ ((value | lower) if value is boolean else (value | string)) | to_json }}
-{%   endfor %}
+{{ volume(arcane_data_volume_driver, arcane_data_volume_driver_opts) -}}
+{% if arcane_postgres_enabled | bool %}
+  db:
+{{ volume(arcane_postgres_volume_driver, arcane_postgres_volume_driver_opts) -}}
 {% endif %}
 
 networks:

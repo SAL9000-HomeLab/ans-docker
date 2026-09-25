@@ -24,13 +24,31 @@ arcane_placement_constraints:
   - node.labels.arcane == true
 
 # Data volume (/app/data: database, projects, git checkouts).
-# Arcane's default SQLite database must not live on NFS; for shared storage also set
-# arcane_database_url to a PostgreSQL database.
+# Arcane's default SQLite database must not live on NFS; for shared storage use
+# PostgreSQL instead (arcane_postgres_enabled or arcane_database_url).
 arcane_data_volume_driver: local
 arcane_data_volume_driver_opts: {}
 #  type: nfs
 #  o: addr=nas01.example.com,nfsvers=4,rw
 #  device: ":/volume1/docker/arcane/data"
+
+# Optional PostgreSQL database, run as a "db" service in the same stack. When enabled,
+# the role builds Arcane's DATABASE_URL itself; leave arcane_database_url empty.
+# Enabling it on an existing install starts Arcane with an empty database.
+arcane_postgres_enabled: false
+arcane_postgres_image: docker.io/postgres
+# Major version upgrades need a dump and restore; don't just bump this.
+arcane_postgres_version: "18-alpine"
+arcane_postgres_db: arcane
+arcane_postgres_user: arcane
+# Data volume for /var/lib/postgresql. For failover, use NFS (mounted "hard", the default).
+arcane_postgres_volume_driver: local
+arcane_postgres_volume_driver_opts: {}
+#  type: nfs
+#  o: addr=nas01.example.com,nfsvers=4,rw
+#  device: ":/volume1/docker/arcane/postgres"
+# Where the database may run; defaults to wherever Arcane may run.
+arcane_postgres_placement_constraints: "{{ arcane_placement_constraints }}"
 
 # Existing overlay networks to attach Arcane to (e.g. a reverse-proxy network).
 arcane_networks: []
@@ -46,7 +64,8 @@ arcane_environment: {}
 # Secrets. Never commit these — supply them from an AWX credential (or vault).
 # They are stored as Docker secrets and passed to Arcane as *_FILE variables.
 arcane_encryption_key: ""         # required; generate once with `openssl rand -hex 32` and keep it
-arcane_database_url: ""           # optional, postgres://user:pass@host:5432/arcane
+arcane_database_url: ""           # optional, external postgres://user:pass@host:5432/arcane
+arcane_postgres_password: ""      # required with arcane_postgres_enabled
 arcane_oidc_client_secret: ""     # optional
 arcane_admin_static_api_key: ""   # optional, API key for automation
 
