@@ -1,0 +1,33 @@
+{
+    "_meta": {
+        "version": "Version of the setting file. Always 0.2",
+        "language": "Current active spelling language",
+        "words": "List of words to be always considered correct",
+        "flagWords": "Words to be always considered incorrect (e.g., 'hte' -> 'the')"
+    },
+    "version": "0.2",
+    "language": "en",
+    "words": [
+        "pywinrm",
+        "venv",
+        "pypsrp",
+        "gssapi",
+        "psrp",
+        "ntlm",
+        "pfirewall",
+        "Bocephus",
+        "cloudbase",
+        "effectivelywild",
+        "rstrip",
+        "Serman",
+        "technitium",
+        "trixie",
+        "urlencode",
+        "vmid",
+        "linkspector",
+        "FQCN"
+    ],
+    "flagWords": [
+        "hte"
+    ]
+}
