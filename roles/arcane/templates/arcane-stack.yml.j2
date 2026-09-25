@@ -1,0 +1,74 @@
+---
+# {{ ansible_managed }}
+# Deployed with: docker stack deploy -c {{ arcane_config_dir }}/arcane-stack.yml {{ arcane_stack_name }}
+{% set env = {'APP_URL': arcane_app_url, 'TZ': arcane_timezone} | combine(arcane_environment) %}
+services:
+  arcane:
+    image: {{ (arcane_image ~ ':' ~ arcane_version) | to_json }}
+    ports:
+      - target: 3552
+        published: {{ arcane_port }}
+        protocol: tcp
+        mode: {{ arcane_publish_mode }}
+    environment:
+{% for name, value in env.items() %}
+      {{ name }}: {{ ((value | lower) if value is boolean else (value | string)) | to_json }}
+{% endfor %}
+{% for secret in _arcane_secrets %}
+      {{ secret.env }}_FILE: "/run/secrets/{{ secret.key }}"
+{% endfor %}
+{% if _arcane_secrets | length > 0 %}
+    secrets:
+{%   for secret in _arcane_secrets %}
+      - source: {{ secret.name }}
+        target: {{ secret.key }}
+        mode: 0400
+{%   endfor %}
+{% endif %}
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - data:/app/data
+    networks:
+      - default
+{% for network in arcane_networks %}
+      - {{ network }}
+{% endfor %}
+    deploy:
+      replicas: 1
+      placement:
+        constraints:
+{% for constraint in arcane_placement_constraints %}
+          - {{ constraint | to_json }}
+{% endfor %}
+      restart_policy:
+        condition: any
+      # One writer at a time on the database.
+      update_config:
+        order: stop-first
+        failure_action: rollback
+
+volumes:
+  data:
+    driver: {{ arcane_data_volume_driver }}
+{% if arcane_data_volume_driver_opts | length > 0 %}
+    driver_opts:
+{%   for name, value in arcane_data_volume_driver_opts.items() %}
+      {{ name }}: {{ ((value | lower) if value is boolean else (value | string)) | to_json }}
+{%   endfor %}
+{% endif %}
+
+networks:
+  default:
+    driver: overlay
+{% for network in arcane_networks %}
+  {{ network }}:
+    external: true
+{% endfor %}
+{% if _arcane_secrets | length > 0 %}
+
+secrets:
+{%   for secret in _arcane_secrets %}
+  {{ secret.name }}:
+    external: true
+{%   endfor %}
+{% endif %}

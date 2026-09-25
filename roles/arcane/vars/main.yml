@@ -1,0 +1,23 @@
+---
+# roles/arcane/vars/main.yml (internal, not meant to be overridden)
+
+# Secrets that have a value. Each Docker secret name ends in a hash of its value, so
+# changing a value creates a new secret (they're immutable) and redeploys the stack.
+# The hash is salted with the encryption key so names don't reveal weak values.
+_arcane_secret_sources:
+  - {env: ENCRYPTION_KEY, key: encryption_key, value: "{{ arcane_encryption_key }}"}
+  - {env: DATABASE_URL, key: database_url, value: "{{ arcane_database_url }}"}
+  - {env: OIDC_CLIENT_SECRET, key: oidc_client_secret, value: "{{ arcane_oidc_client_secret }}"}
+  - {env: ADMIN_STATIC_API_KEY, key: admin_static_api_key, value: "{{ arcane_admin_static_api_key }}"}
+
+_arcane_secrets: >-
+  {%- set out = [] -%}
+  {%- for s in _arcane_secret_sources if s.value | length > 0 -%}
+  {%-   set _ = out.append({
+          'env': s.env,
+          'key': s.key,
+          'value': s.value,
+          'name': arcane_stack_name ~ '_' ~ s.key ~ '_' ~ ((arcane_encryption_key ~ s.value) | hash('sha256'))[:12]
+        }) -%}
+  {%- endfor -%}
+  {{ out }}

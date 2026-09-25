@@ -1,0 +1,60 @@
+---
+# roles/docker_swarm/tasks/discover.yml
+#
+# Asks every configured manager (even ones outside the job's limit) for its swarm
+# state and picks the first active manager as the leader for this run.
+
+- name: Read swarm state of each manager
+  ansible.builtin.command: docker info --format json
+  delegate_to: "{{ item }}"
+  loop: "{{ _docker_swarm_managers }}"
+  register: _docker_swarm_manager_info
+  changed_when: false
+  failed_when: false
+  ignore_unreachable: true
+  run_once: true
+
+- name: Summarise manager state
+  ansible.builtin.set_fact:
+    _docker_swarm_manager_states: >-
+      {%- set out = [] -%}
+      {%- for r in _docker_swarm_manager_info.results -%}
+      {%-   set ok = not (r.unreachable | default(false)) and (r.rc | default(1)) == 0 -%}
+      {%-   set _ = out.append({'host': r.item, 'known': ok, 'swarm': ((r.stdout | from_json).Swarm if ok else {})}) -%}
+      {%- endfor -%}
+      {{ out }}
+  run_once: true
+
+- name: Pick the leader
+  ansible.builtin.set_fact:
+    _docker_swarm_leader: >-
+      {{ (_docker_swarm_manager_states | selectattr('swarm.ControlAvailable', 'defined')
+          | selectattr('swarm.ControlAvailable') | map(attribute='host') | list + [''])[0] }}
+    _docker_swarm_cluster_ids: >-
+      {{ _docker_swarm_manager_states | selectattr('swarm.Cluster.ID', 'defined')
+         | map(attribute='swarm.Cluster.ID') | select | unique | list }}
+    _docker_swarm_unknown_managers: >-
+      {{ _docker_swarm_manager_states | rejectattr('known') | map(attribute='host') | list }}
+  run_once: true
+
+- name: Refuse to continue with managers from different clusters
+  ansible.builtin.assert:
+    that: _docker_swarm_cluster_ids | length <= 1
+    fail_msg: >-
+      Hosts in {{ docker_swarm_manager_group }} belong to {{ _docker_swarm_cluster_ids | length }} different
+      swarms ({{ _docker_swarm_cluster_ids | join(', ') }}). Fix the inventory, or make the stray host
+      leave its swarm, before running again.
+    quiet: true
+  run_once: true
+
+- name: Refuse to create a cluster while a manager is unreachable
+  ansible.builtin.assert:
+    that: _docker_swarm_leader | length > 0 or _docker_swarm_unknown_managers | length == 0
+    fail_msg: >-
+      No active manager found, but {{ _docker_swarm_unknown_managers | join(', ') }} couldn't be checked
+      (unreachable or Docker not running). Creating a new cluster now could split it in two.
+    quiet: true
+  run_once: true
+
+- name: Read local swarm state
+  ansible.builtin.include_tasks: local_state.yml

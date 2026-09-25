@@ -1,0 +1,11 @@
+---
+# roles/docker_swarm/tasks/local_state.yml
+
+- name: Read local swarm state
+  ansible.builtin.command: docker info --format json
+  register: _docker_swarm_local_info
+  changed_when: false
+
+- name: Store local swarm state
+  ansible.builtin.set_fact:
+    _docker_swarm_local: "{{ (_docker_swarm_local_info.stdout | from_json).Swarm }}"

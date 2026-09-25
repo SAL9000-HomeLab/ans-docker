@@ -1,0 +1,23 @@
+---
+# group_vars/docker_swarm.yml
+# Non-secret settings shared by every swarm node. Values are examples; override
+# them in the AWX inventory or job template. Secrets (arcane_encryption_key, ...)
+# must come from an AWX credential, never from this file.
+
+# Admin account created by the vm-templates / proxmox-deploy cloud-init.
+ansible_user: ansible
+
+# docker_engine
+docker_engine_users:
+  - ansible
+
+# docker_swarm
+# Shared overlay networks that stacks attach to with `external: true`.
+docker_swarm_overlay_networks:
+  - name: proxy
+    attachable: true
+
+# arcane
+# Point a DNS name at the managers (ingress publishing answers on every node).
+arcane_app_url: "http://arcane.lab.example.com:3552"
+arcane_timezone: America/New_York

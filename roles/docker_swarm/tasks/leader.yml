@@ -1,0 +1,30 @@
+---
+# roles/docker_swarm/tasks/leader.yml
+
+- name: Read leader swarm state
+  ansible.builtin.command: docker info --format json
+  delegate_to: "{{ _docker_swarm_leader }}"
+  register: _docker_swarm_leader_info
+  changed_when: false
+  run_once: true
+
+- name: Read join tokens
+  ansible.builtin.command: docker swarm join-token -q {{ item }}
+  delegate_to: "{{ _docker_swarm_leader }}"
+  loop:
+    - manager
+    - worker
+  register: _docker_swarm_tokens
+  changed_when: false
+  run_once: true
+  no_log: true
+
+- name: Store join address and tokens
+  ansible.builtin.set_fact:
+    _docker_swarm_join_addr: "{{ (_docker_swarm_leader_info.stdout | from_json).Swarm.NodeAddr }}:2377"
+    _docker_swarm_cluster_id: "{{ (_docker_swarm_leader_info.stdout | from_json).Swarm.Cluster.ID }}"
+    _docker_swarm_join_token:
+      manager: "{{ _docker_swarm_tokens.results[0].stdout }}"
+      worker: "{{ _docker_swarm_tokens.results[1].stdout }}"
+  run_once: true
+  no_log: true

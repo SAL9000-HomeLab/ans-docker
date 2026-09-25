@@ -1,0 +1,25 @@
+---
+# Builds and maintains the Docker Swarm cluster described by the inventory groups,
+# then deploys Arcane on it. Safe to re-run: every step converges to the inventory.
+#
+# Removing nodes: removal runs from a manager, so a job with a limit must include at
+# least one manager (e.g. --limit 'docker_swarm_managers:old-node.example.com').
+
+- name: Install Docker Engine
+  hosts: docker_swarm_managers:docker_swarm_workers:!docker_swarm_remove
+  become: true
+  roles:
+    - role: docker_engine
+
+- name: Converge Docker Swarm membership
+  hosts: docker_swarm_managers:docker_swarm_workers:!docker_swarm_remove
+  become: true
+  roles:
+    - role: docker_swarm
+
+- name: Deploy Arcane
+  hosts: docker_swarm_managers:!docker_swarm_remove
+  become: true
+  gather_facts: false
+  roles:
+    - role: arcane

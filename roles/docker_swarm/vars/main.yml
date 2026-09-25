@@ -1,0 +1,9 @@
+---
+# roles/docker_swarm/vars/main.yml (internal, not meant to be overridden)
+
+_docker_swarm_removals: "{{ groups[docker_swarm_remove_group] | default([]) }}"
+_docker_swarm_managers: >-
+  {{ groups[docker_swarm_manager_group] | default([]) | difference(_docker_swarm_removals) }}
+_docker_swarm_workers: >-
+  {{ groups[docker_swarm_worker_group] | default([]) | difference(_docker_swarm_removals) }}
+_docker_swarm_role: "{{ 'manager' if inventory_hostname in _docker_swarm_managers else 'worker' }}"

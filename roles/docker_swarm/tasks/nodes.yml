@@ -1,0 +1,21 @@
+---
+# roles/docker_swarm/tasks/nodes.yml
+#
+# Sets _docker_swarm_nodes: the leader's `docker node ls`, keyed by node ID.
+
+- name: List swarm nodes
+  ansible.builtin.command: docker node ls --format json
+  delegate_to: "{{ _docker_swarm_leader }}"
+  register: _docker_swarm_node_ls
+  changed_when: false
+  run_once: true
+
+- name: Store swarm nodes
+  ansible.builtin.set_fact:
+    _docker_swarm_nodes: >-
+      {%- set out = {} -%}
+      {%- for node in _docker_swarm_node_ls.stdout_lines | map('from_json') -%}
+      {%-   set _ = out.update({node.ID: node}) -%}
+      {%- endfor -%}
+      {{ out }}
+  run_once: true

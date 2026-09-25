@@ -1,0 +1,57 @@
+---
+# roles/docker_swarm/tasks/join.yml
+
+- name: Check this node's swarm state is usable
+  ansible.builtin.assert:
+    that: _docker_swarm_local.LocalNodeState in ['inactive', 'active']
+    fail_msg: >-
+      Swarm state on {{ inventory_hostname }} is '{{ _docker_swarm_local.LocalNodeState }}'
+      ({{ _docker_swarm_local.Error | default('') }}). Resolve it by hand (e.g. `docker swarm leave --force`).
+    quiet: true
+
+- name: Check this node isn't a manager of another swarm
+  ansible.builtin.assert:
+    that: >-
+      not (_docker_swarm_local.ControlAvailable | default(false))
+      or _docker_swarm_local.Cluster.ID == _docker_swarm_cluster_id
+    fail_msg: "{{ inventory_hostname }} manages a different swarm ({{ _docker_swarm_local.Cluster.ID }})."
+    quiet: true
+
+# Managers join one at a time: adding several raft members at once can lose quorum.
+- name: Join the swarm as a manager
+  ansible.builtin.command:
+    argv:
+      - docker
+      - swarm
+      - join
+      - --token
+      - "{{ _docker_swarm_join_token.manager }}"
+      - --advertise-addr
+      - "{{ docker_swarm_advertise_addr }}"
+      - "{{ _docker_swarm_join_addr }}"
+  when:
+    - _docker_swarm_local.LocalNodeState == 'inactive'
+    - _docker_swarm_role == 'manager'
+  changed_when: true
+  throttle: 1
+  no_log: true
+
+- name: Join the swarm as a worker
+  ansible.builtin.command:
+    argv:
+      - docker
+      - swarm
+      - join
+      - --token
+      - "{{ _docker_swarm_join_token.worker }}"
+      - --advertise-addr
+      - "{{ docker_swarm_advertise_addr }}"
+      - "{{ _docker_swarm_join_addr }}"
+  when:
+    - _docker_swarm_local.LocalNodeState == 'inactive'
+    - _docker_swarm_role == 'worker'
+  changed_when: true
+  no_log: true
+
+- name: Refresh local swarm state
+  ansible.builtin.include_tasks: local_state.yml

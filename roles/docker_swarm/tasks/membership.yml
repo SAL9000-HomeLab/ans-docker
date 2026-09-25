@@ -1,0 +1,42 @@
+---
+# roles/docker_swarm/tasks/membership.yml
+
+- name: List swarm nodes
+  ansible.builtin.include_tasks: nodes.yml
+
+- name: Check this node belongs to the managed swarm
+  ansible.builtin.assert:
+    that: _docker_swarm_local.NodeID in _docker_swarm_nodes
+    fail_msg: >-
+      {{ inventory_hostname }} is in a swarm, but not the one {{ _docker_swarm_leader }} manages.
+      Run `docker swarm leave --force` on it, then run this job again.
+    quiet: true
+
+- name: Store this node's swarm entry
+  ansible.builtin.set_fact:
+    _docker_swarm_node: "{{ _docker_swarm_nodes[_docker_swarm_local.NodeID] }}"
+
+- name: Promote to manager
+  ansible.builtin.command: docker node promote {{ _docker_swarm_node.ID }}
+  delegate_to: "{{ _docker_swarm_leader }}"
+  when:
+    - _docker_swarm_role == 'manager'
+    - _docker_swarm_node.ManagerStatus | length == 0
+  changed_when: true
+  throttle: 1
+
+- name: Demote to worker
+  ansible.builtin.command: docker node demote {{ _docker_swarm_node.ID }}
+  delegate_to: "{{ _docker_swarm_leader }}"
+  when:
+    - _docker_swarm_role == 'worker'
+    - _docker_swarm_node.ManagerStatus | length > 0
+  changed_when: true
+  throttle: 1
+
+- name: Set availability to {{ docker_swarm_node_availability }}
+  ansible.builtin.command: >-
+    docker node update --availability {{ docker_swarm_node_availability }} {{ _docker_swarm_node.ID }}
+  delegate_to: "{{ _docker_swarm_leader }}"
+  when: _docker_swarm_node.Availability | lower != docker_swarm_node_availability
+  changed_when: true

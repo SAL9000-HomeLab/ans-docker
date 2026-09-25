@@ -1,0 +1,46 @@
+---
+# roles/docker_swarm/tasks/bootstrap.yml
+#
+# Runs only when no configured manager is in a swarm: the first manager creates it.
+
+- name: Refuse to create a cluster while other hosts are in a swarm
+  ansible.builtin.assert:
+    that: _docker_swarm_in_a_swarm | length == 0
+    fail_msg: >-
+      None of {{ _docker_swarm_managers | join(', ') }} manages a swarm, but
+      {{ _docker_swarm_in_a_swarm | join(', ') }} already belong to one. Keep at least one existing manager
+      in {{ docker_swarm_manager_group }} so the cluster is found, instead of creating a new one.
+    quiet: true
+  vars:
+    _docker_swarm_in_a_swarm: >-
+      {{ ansible_play_hosts
+         | zip(ansible_play_hosts | map('extract', hostvars, ['_docker_swarm_local', 'LocalNodeState']))
+         | selectattr(1, 'equalto', 'active') | map(attribute=0) | list }}
+  run_once: true
+
+- name: Gather network facts for the first manager
+  ansible.builtin.setup:
+    gather_subset:
+      - "!all"
+      - network
+  delegate_to: "{{ _docker_swarm_managers[0] }}"
+  delegate_facts: true
+  run_once: true
+
+- name: Initialise the swarm on {{ _docker_swarm_managers[0] }}
+  ansible.builtin.command:
+    argv: >-
+      {{ ['docker', 'swarm', 'init',
+          '--advertise-addr', hostvars[_docker_swarm_managers[0]].docker_swarm_advertise_addr]
+         + docker_swarm_init_options }}
+  delegate_to: "{{ _docker_swarm_managers[0] }}"
+  changed_when: true
+  run_once: true
+
+- name: Use the new manager as leader
+  ansible.builtin.set_fact:
+    _docker_swarm_leader: "{{ _docker_swarm_managers[0] }}"
+  run_once: true
+
+- name: Refresh local swarm state
+  ansible.builtin.include_tasks: local_state.yml

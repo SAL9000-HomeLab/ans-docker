@@ -1,0 +1,28 @@
+---
+# roles/docker_engine/tasks/firewalld.yml
+
+- name: Check whether firewalld is running
+  ansible.builtin.systemd_service:
+    name: firewalld
+  register: _docker_engine_firewalld
+
+- name: Open swarm ports
+  ansible.posix.firewalld:
+    zone: "{{ docker_engine_firewalld_zone }}"
+    port: "{{ item }}"
+    permanent: true
+    immediate: true
+    state: enabled
+  loop: "{{ docker_engine_firewalld_ports }}"
+  when: _docker_engine_firewalld.status.ActiveState == 'active'
+
+- name: Allow IPsec ESP for encrypted overlay networks
+  ansible.posix.firewalld:
+    zone: "{{ docker_engine_firewalld_zone }}"
+    protocol: esp
+    permanent: true
+    immediate: true
+    state: enabled
+  when:
+    - _docker_engine_firewalld.status.ActiveState == 'active'
+    - docker_engine_firewalld_allow_esp | bool

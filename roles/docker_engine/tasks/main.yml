@@ -1,0 +1,86 @@
+---
+# roles/docker_engine/tasks/main.yml
+
+- name: Check supported platform
+  ansible.builtin.assert:
+    that:
+      - ansible_os_family == 'RedHat'
+      - ansible_distribution_major_version | int >= 9
+    fail_msg: >-
+      docker_engine supports Rocky/RHEL 9+ (found {{ ansible_distribution }} {{ ansible_distribution_version }}).
+    quiet: true
+
+- name: Check daemon options are swarm-compatible
+  ansible.builtin.assert:
+    that:
+      - not (_docker_engine_daemon_config['live-restore'] | default(false) | bool)
+    fail_msg: "live-restore can't be enabled on swarm nodes; remove it from docker_engine_daemon_options."
+    quiet: true
+
+- name: Remove packages that conflict with Docker CE
+  ansible.builtin.dnf:
+    name: "{{ docker_engine_conflicting_packages }}"
+    state: absent
+
+- name: Add the Docker CE repository
+  ansible.builtin.yum_repository:
+    name: docker-ce-stable
+    description: Docker CE Stable - $basearch
+    baseurl: "{{ docker_engine_repo_baseurl }}"
+    gpgcheck: true
+    gpgkey: "{{ docker_engine_repo_gpgkey }}"
+    enabled: true
+
+- name: Install Docker CE
+  ansible.builtin.dnf:
+    name: "{{ _docker_engine_package_list }}"
+    state: present
+    allow_downgrade: "{{ docker_engine_version | length > 0 }}"
+  notify: Restart docker
+
+- name: Install extra host packages
+  ansible.builtin.dnf:
+    name: "{{ docker_engine_extra_packages }}"
+    state: present
+  when: docker_engine_extra_packages | length > 0
+
+- name: Create /etc/docker
+  ansible.builtin.file:
+    path: /etc/docker
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Write /etc/docker/daemon.json
+  ansible.builtin.copy:
+    content: "{{ _docker_engine_daemon_config | to_nice_json }}\n"
+    dest: /etc/docker/daemon.json
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Restart docker
+
+- name: Enable and start containerd and docker
+  ansible.builtin.systemd_service:
+    name: "{{ item }}"
+    enabled: true
+    state: started
+  loop:
+    - containerd
+    - docker
+
+- name: Add users to the docker group
+  ansible.builtin.user:
+    name: "{{ item }}"
+    groups: docker
+    append: true
+  loop: "{{ docker_engine_users }}"
+
+- name: Configure firewalld
+  ansible.builtin.include_tasks: firewalld.yml
+  when: docker_engine_firewalld_manage | bool
+
+# Apply a pending daemon restart now, so the swarm play sees the final engine.
+- name: Flush handlers
+  ansible.builtin.meta: flush_handlers

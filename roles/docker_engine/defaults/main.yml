@@ -1,0 +1,59 @@
+---
+# roles/docker_engine/defaults/main.yml
+
+# Docker CE repository (Docker publishes EL10 packages under the "rhel" tree).
+docker_engine_repo_baseurl: >-
+  https://download.docker.com/linux/rhel/{{ ansible_distribution_major_version }}/$basearch/stable
+docker_engine_repo_gpgkey: "https://download.docker.com/linux/rhel/gpg"
+
+# Pin a Docker CE version (e.g. "29.8.1") or leave empty for the latest in the repo.
+# Changing the pin upgrades/downgrades the engine on the next run.
+docker_engine_version: ""
+
+docker_engine_packages:
+  - docker-ce
+  - docker-ce-cli
+  - containerd.io
+  - docker-buildx-plugin
+  - docker-compose-plugin
+
+# Packages that conflict with docker-ce (runc clashes with containerd.io).
+docker_engine_conflicting_packages:
+  - docker
+  - docker-client
+  - docker-client-latest
+  - docker-common
+  - docker-latest
+  - docker-latest-logrotate
+  - docker-logrotate
+  - docker-engine
+  - podman-docker
+  - podman
+  - runc
+
+# Extra host packages. nfs-utils lets stacks use `type: nfs` local volumes.
+docker_engine_extra_packages:
+  - nfs-utils
+
+# Local users added to the docker group (the group is root-equivalent).
+docker_engine_users: []
+
+# /etc/docker/daemon.json = defaults merged with docker_engine_daemon_options.
+# Don't set live-restore: it is not supported in swarm mode.
+docker_engine_daemon_defaults:
+  log-driver: json-file
+  log-opts:
+    max-size: 10m
+    max-file: "3"
+docker_engine_daemon_options: {}
+
+# firewalld: open the swarm control/data-plane ports.
+docker_engine_firewalld_manage: true
+docker_engine_firewalld_zone: public
+docker_engine_firewalld_ports:
+  - 2377/tcp  # cluster management (managers)
+  - 7946/tcp  # node gossip
+  - 7946/udp  # node gossip
+  - 4789/udp  # overlay (VXLAN) data path
+# Encrypted overlay networks (`encrypted: true`) also need IPsec ESP.
+docker_engine_firewalld_allow_esp: false

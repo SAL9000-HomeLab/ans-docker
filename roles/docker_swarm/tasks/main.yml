@@ -1,0 +1,56 @@
+---
+# roles/docker_swarm/tasks/main.yml
+#
+# Converges the swarm to match the inventory groups. Cluster-wide steps run once
+# and are delegated to an existing manager (the "leader" below), so a job limited
+# to a single new node still joins it to the right cluster.
+
+- name: Check inventory groups
+  ansible.builtin.assert:
+    that:
+      - _docker_swarm_managers | length > 0
+      - _docker_swarm_managers | intersect(_docker_swarm_workers) | length == 0
+    fail_msg: >-
+      Need at least one host in {{ docker_swarm_manager_group }} that isn't in {{ docker_swarm_remove_group }},
+      and no host may be in both {{ docker_swarm_manager_group }} and {{ docker_swarm_worker_group }}.
+      Overlap: {{ _docker_swarm_managers | intersect(_docker_swarm_workers) }}
+    quiet: true
+  run_once: true
+
+- name: Warn about an even number of managers
+  ansible.builtin.debug:
+    msg: >-
+      {{ _docker_swarm_managers | length }} managers configured. Use an odd number (3 or 5):
+      an even count adds no fault tolerance over one fewer.
+  when: _docker_swarm_managers | length is divisibleby 2
+  run_once: true
+
+- name: Find the existing cluster
+  ansible.builtin.include_tasks: discover.yml
+
+- name: Create the cluster
+  ansible.builtin.include_tasks: bootstrap.yml
+  when: _docker_swarm_leader | length == 0
+
+- name: Read join address and tokens
+  ansible.builtin.include_tasks: leader.yml
+
+- name: Join nodes
+  ansible.builtin.include_tasks: join.yml
+
+- name: Set node roles and availability
+  ansible.builtin.include_tasks: membership.yml
+
+- name: Set node labels
+  ansible.builtin.include_tasks: labels.yml
+
+- name: Remove nodes in {{ docker_swarm_remove_group }}
+  ansible.builtin.include_tasks: remove.yml
+  loop: "{{ _docker_swarm_removals }}"
+  loop_control:
+    loop_var: _docker_swarm_remove_host
+  run_once: true
+
+- name: Create overlay networks
+  ansible.builtin.include_tasks: networks.yml
+  when: docker_swarm_overlay_networks | length > 0
