@@ -172,7 +172,8 @@ To use a PostgreSQL server outside the swarm instead, leave `arcane_postgres_ena
 
 Turning `arcane_postgres_enabled` off again removes the `db` service, but not its volume or data.
 
-On a new install, sign in as `admin` / `admin` and change the password immediately.
+On a new install, sign in as `arcane` / `arcane-admin` (Arcane's own install docs still say `admin` / `admin`);
+Arcane then asks for a new password.
 
 Arcane's Swarm pages work against this manager environment directly. Arcane agents on the other nodes, which give
 per-node container views, are optional. They are registered in the Arcane UI (**Environments**), which issues a

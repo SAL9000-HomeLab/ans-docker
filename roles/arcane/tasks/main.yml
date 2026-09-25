@@ -111,12 +111,20 @@
             docker service ls --filter label=com.docker.stack.namespace={{ arcane_stack_name }} --format json
           register: _arcane_services
           changed_when: false
-          until: >-
-            _arcane_services.stdout_lines | length > 0
-            and _arcane_services.stdout_lines | map('from_json') | map(attribute='Replicas')
-                | reject('match', '^([1-9][0-9]*)/\1\b') | list | length == 0
+          until: _arcane_services.stdout_lines | length > 0 and _arcane_not_ready | length == 0
           retries: "{{ arcane_deploy_wait_retries }}"
           delay: "{{ arcane_deploy_wait_delay }}"
+          vars:
+            # Services whose running count ("1/1", "1/1 (max 1 per node)") isn't the full, non-zero target.
+            _arcane_not_ready: >-
+              {%- set out = [] -%}
+              {%- for svc in _arcane_services.stdout_lines | map('from_json') -%}
+              {%-   set counts = svc.Replicas.split(' ')[0].split('/') -%}
+              {%-   if counts | length != 2 or counts[0] != counts[1] or counts[1] == '0' -%}
+              {%-     set _ = out.append(svc.Name) -%}
+              {%-   endif -%}
+              {%- endfor -%}
+              {{ out }}
 
       rescue:
         - name: Collect task errors and logs from Arcane services
@@ -153,6 +161,6 @@
     - name: Show where Arcane is
       ansible.builtin.debug:
         msg: >-
-          Arcane is at {{ arcane_app_url }}. On a new install sign in as admin / admin and change
-          the password straight away.
+          Arcane is at {{ arcane_app_url }}. On a new install sign in as arcane / arcane-admin;
+          Arcane then asks for a new password.
       when: _arcane_service.rc != 0
