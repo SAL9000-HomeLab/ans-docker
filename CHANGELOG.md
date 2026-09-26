@@ -5,6 +5,8 @@ pushing a `vX.Y.Z` tag; the release workflow publishes the matching section.
 
 ## [Unreleased]
 
+- Fixed: `keepalived` failed its config check when only one manager was in the inventory (unicast settings
+  without peers). A lone manager now runs without them, and the play says which hosts it counted.
 - Added: `docker_engine` role: installs Docker CE on Rocky Linux 9/10, manages `daemon.json`, opens the swarm
   ports in firewalld and installs `nfs-utils`.
 - Added: `docker_swarm` role: creates the swarm and keeps it in line with the `docker_swarm_managers`,
