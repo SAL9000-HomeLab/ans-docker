@@ -25,16 +25,19 @@ vrrp_instance {{ instance.name }} {
     priority {{ keepalived_priority }}
     advert_int 1
 
+{% if _keepalived_peer_addresses | length > 0 %}
     # Unicast between known peers only: no multicast, and adverts from other hosts are ignored.
     unicast_src_ip {{ keepalived_address }}
-{% if _keepalived_peer_addresses | length > 0 %}
     unicast_peer {
 {%   for address in _keepalived_peer_addresses %}
         {{ address }}
 {%   endfor %}
     }
-{% endif %}
     check_unicast_src
+{% else %}
+    # Only manager: keepalived rejects unicast settings without peers, so it uses multicast
+    # until a second manager joins.
+{% endif %}
 
     virtual_ipaddress {
         {{ instance.virtual_ip }} dev {{ keepalived_interface }}

@@ -48,6 +48,15 @@
           {%- endfor -%}
           {{ out }}
 
+    - name: Warn that a single manager has nowhere to fail over to
+      ansible.builtin.debug:
+        msg: >-
+          {{ inventory_hostname }} is the only host in {{ keepalived_group }} (excluding
+          {{ keepalived_remove_group }}), so the floating IPs stay on it. Members seen:
+          {{ groups[keepalived_group] | default([]) }}; being removed:
+          {{ groups[keepalived_remove_group] | default([]) }}.
+      when: _keepalived_peers | length == 0
+
     - name: Install keepalived
       ansible.builtin.dnf:
         name: keepalived
