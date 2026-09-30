@@ -5,6 +5,9 @@ pushing a `vX.Y.Z` tag; the release workflow publishes the matching section.
 
 ## [Unreleased]
 
+- Changed: Synced the shared files from `ans-template`: `.gitignore` also ignores `.ansible/` and Python bytecode,
+  yamllint and ansible-lint skip `.ansible/`, and `.vscode/cspell.json` is shared, with this repository's words in
+  `.vscode/project-words.txt`.
 - Fixed: `keepalived` failed its config check when only one manager was in the inventory (unicast settings
   without peers). A lone manager now runs without them, and the play says which hosts it counted.
 - Added: `docker_engine` role: installs Docker CE on Rocky Linux 9/10, manages `daemon.json`, opens the swarm
