@@ -127,7 +127,7 @@ See [Floating IPs](#floating-ips) below.
 | `arcane_database_url` | `""` (SQLite) | Secret. URL of an external PostgreSQL database. Not used with `arcane_postgres_enabled`. |
 | `arcane_oidc_client_secret` | `""` | Secret. |
 | `arcane_admin_static_api_key` | `""` | Secret. Fixed API key for automation. |
-| `arcane_version` | `v2.13.1` | Image tag of `ghcr.io/getarcaneapp/manager`. |
+| `arcane_version` | `v2.14.0` | Image tag of `ghcr.io/getarcaneapp/manager`. |
 | `arcane_app_url` | `http://<first manager>:3552` | The URL users open. |
 | `arcane_port` / `arcane_publish_mode` | `3552` / `ingress` | `ingress` answers on every node's IP. |
 | `arcane_placement_constraints` | manager with label `arcane=true` | See below. |

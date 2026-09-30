@@ -3,7 +3,7 @@
 
 arcane_stack_name: arcane
 arcane_image: ghcr.io/getarcaneapp/manager
-arcane_version: v2.13.1
+arcane_version: v2.14.0
 
 # Web UI port. "ingress" publishes it on every node (routing mesh), so the URL keeps
 # working wherever the task runs; "host" publishes it only on the node running it.
