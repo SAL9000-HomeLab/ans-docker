@@ -29,3 +29,6 @@ docker_swarm_overlay_networks:
 # Point a DNS name at the managers (ingress publishing answers on every node).
 arcane_app_url: "http://arcane.lab.example.com:3552"
 arcane_timezone: America/New_York
+# Join the proxy network so Nginx Proxy Manager can forward to arcane_arcane:3552.
+arcane_networks:
+  - proxy
