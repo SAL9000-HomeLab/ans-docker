@@ -5,6 +5,8 @@ pushing a `vX.Y.Z` tag; the release workflow publishes the matching section.
 
 ## [Unreleased]
 
+- Added: README section on Arcane single sign-on with an OpenID Connect provider (authentik): redirect URI,
+  `arcane_environment` settings including `OIDC_ROLE_MAPPINGS`, and the client secret from the AWX credential.
 - Changed: Synced the shared files from `ans-template`: `.gitignore` also ignores `.ansible/` and Python bytecode,
   yamllint and ansible-lint skip `.ansible/`, and `.vscode/cspell.json` is shared, with this repository's words in
   `.vscode/project-words.txt`.

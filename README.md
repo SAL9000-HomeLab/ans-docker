@@ -225,6 +225,43 @@ Arcane's Swarm pages work against this manager environment directly. Arcane agen
 per-node container views, are optional. They are registered in the Arcane UI (**Environments**), which issues a
 token for each node, so they aren't deployed by this repo yet.
 
+#### Single sign-on (OpenID Connect)
+
+Arcane can sign users in through an OpenID Connect provider such as authentik, and give them roles from their
+groups. Everything is set with variables, so it survives redeploys: Arcane's environment settings override what's
+saved in its UI. With authentik, for example:
+
+1. In authentik, create an **OAuth2/OpenID Provider** and an **Application** with the slug `arcane`:
+   - **Redirect URI** (Strict): `https://arcane.example.com/auth/oidc/callback`, the public `arcane_app_url`
+     followed by `/auth/oidc/callback`.
+   - **Client ID:** authentik generates a random one. Change it to `arcane`, or use the generated one as
+     `OIDC_CLIENT_ID` below.
+   - Keep the default scopes (`openid`, `email`, `profile`). `profile` includes the user's `groups`, which the role
+     mappings below use.
+2. Put the provider's **Client Secret** in the AWX credential's `oidc_client_secret` field (see
+   [AWX setup](#awx-setup)). The role stores it as a Docker secret, and Arcane reads it as
+   `OIDC_CLIENT_SECRET_FILE`.
+3. Set these on the inventory's `docker_swarm` group:
+
+   ```yaml
+   arcane_app_url: "https://arcane.example.com"   # the public URL, behind the reverse proxy
+   arcane_environment:
+     OIDC_ENABLED: true
+     OIDC_ISSUER_URL: https://auth.example.com/application/o/arcane/
+     OIDC_CLIENT_ID: arcane
+     OIDC_PROVIDER_NAME: authentik
+     # Group name (from the groups claim) -> Arcane role. Users in no mapped group can sign in but have no
+     # role until an admin gives them one. Built-in roles: role_admin, role_editor, role_no_shell_editor,
+     # role_deployer, role_monitor, role_viewer.
+     OIDC_ROLE_MAPPINGS: '[{"claimValue": "ServerAdmins", "roleId": "role_admin"}]'
+   ```
+
+4. Run the job template. Arcane's login page then shows **Sign in with authentik**.
+
+Keep the local `arcane` account as a way in when the provider can't be reached. The redirect URI depends on
+`arcane_app_url`, so use the same public URL for both. If authentik shows "The client identifier (client_id) is
+missing or invalid", `OIDC_CLIENT_ID` doesn't match the provider's Client ID.
+
 ## Floating IPs
 
 Swarm services that publish ports in `mode: host` (like Nginx Proxy Manager, so it sees real client addresses)
