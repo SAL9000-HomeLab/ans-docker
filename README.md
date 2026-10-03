@@ -258,7 +258,17 @@ saved in its UI. With authentik, for example:
 
 4. Run the job template. Arcane's login page then shows **Sign in with authentik**.
 
-Keep the local `arcane` account as a way in when the provider can't be reached. The redirect URI depends on
+> **Arcane v2.14.0 ignores the client secret file.** Its settings only read a plain `OIDC_CLIENT_SECRET`
+> variable, not `OIDC_CLIENT_SECRET_FILE`, so it sends no secret (or the one saved in its UI) and authentik
+> answers `invalid_client` ("Client authentication failed"). This is fixed upstream
+> ([getarcaneapp/arcane#4203](https://github.com/getarcaneapp/arcane/pull/4203), merged after v2.14.0). Until a
+> release with the fix, also enter the client secret in Arcane under **Settings → Authentication → OIDC Client
+> Secret**: that field stays editable because no plain variable overrides it. After upgrading to a fixed
+> release, the secret from the credential takes over again.
+
+Keep the local `arcane` account as a way in when the provider can't be reached. A failed sign-in is logged
+with its reason: `docker service logs --since 5m arcane_arcane 2>&1 | grep -i oidc`. `invalid_client` means
+the client secret Arcane sends isn't the provider's (see the note above). The redirect URI depends on
 `arcane_app_url`, so use the same public URL for both. If authentik shows "The client identifier (client_id) is
 missing or invalid", `OIDC_CLIENT_ID` doesn't match the provider's Client ID.
 
