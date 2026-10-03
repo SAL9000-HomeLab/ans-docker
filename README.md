@@ -259,12 +259,31 @@ saved in its UI. With authentik, for example:
 4. Run the job template. Arcane's login page then shows **Sign in with authentik**.
 
 > **Arcane v2.14.0 ignores the client secret file.** Its settings only read a plain `OIDC_CLIENT_SECRET`
-> variable, not `OIDC_CLIENT_SECRET_FILE`, so it sends no secret (or the one saved in its UI) and authentik
-> answers `invalid_client` ("Client authentication failed"). This is fixed upstream
+> variable, not `OIDC_CLIENT_SECRET_FILE`, so it sends no secret (or the one saved in its database) and
+> authentik answers `invalid_client` ("Client authentication failed"). This is fixed upstream
 > ([getarcaneapp/arcane#4203](https://github.com/getarcaneapp/arcane/pull/4203), merged after v2.14.0). Until a
-> release with the fix, also enter the client secret in Arcane under **Settings → Authentication → OIDC Client
-> Secret**: that field stays editable because no plain variable overrides it. After upgrading to a fixed
-> release, the secret from the credential takes over again.
+> release with the fix, save the client secret in Arcane's database once, through its API. The settings page
+> can't do it: it locks every OIDC field, the secret too, when `OIDC_ENABLED` comes from the environment.
+>
+> 1. In Arcane, signed in as an admin, create an API key under **Settings → API Keys**.
+> 2. On a manager (bash), enter both values at the prompts, so they stay out of the screen and the shell
+>    history:
+>
+>    ```sh
+>    read -rsp 'Arcane API key: ' KEY; echo
+>    read -rsp 'Client secret: ' SECRET; echo
+>    curl -sS -X PUT http://localhost:3552/api/environments/0/settings \
+>      -H "X-API-Key: $KEY" -H 'Content-Type: application/json' \
+>      -d "{\"oidcClientSecret\": \"$SECRET\"}" | head -c 300; echo
+>    unset KEY SECRET
+>    ```
+>
+>    A reply starting with `{"success":true` means it's saved. Environment `0` is the manager's own; Arcane
+>    accepts authentication settings only there.
+> 3. Sign in with authentik, then delete the API key.
+>
+> Use the same value as in the credential: after upgrading to a release with the fix, the secret from the
+> credential takes over. A changed secret needs the API call again until then.
 
 Keep the local `arcane` account as a way in when the provider can't be reached. A failed sign-in is logged
 with its reason: `docker service logs --since 5m arcane_arcane 2>&1 | grep -i oidc`. `invalid_client` means
