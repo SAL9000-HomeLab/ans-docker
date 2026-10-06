@@ -25,3 +25,4 @@ pushing a `vX.Y.Z` tag; the release workflow publishes the matching section.
   follows a service published on host-mode ports (e.g. Nginx Proxy Manager).
 - Changed: The manager and worker lists keep inventory order, so the first listed manager creates a new swarm.
 - Added: `site.yml`, a placeholder inventory and group vars, and ansible-lint config.
+- Changed: Ansible CI runs on pull requests only, no longer on pushes to `main` (synced from ans-template).
