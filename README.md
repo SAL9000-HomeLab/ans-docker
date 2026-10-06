@@ -375,7 +375,7 @@ Nothing needs to be installed in Python on the nodes: the roles use the `docker`
 
 The workflows and lint configs match the other `SAL9000-HomeLab` Ansible repositories:
 
-- **Ansible CI** (`.github/workflows/ansible-ci.yml`), on pushes to `main` and every pull request:
+- **Ansible CI** (`.github/workflows/ansible-ci.yml`), on every pull request:
   `yamllint`, `ansible-playbook --syntax-check site.yml`, `ansible-lint` ([.ansible-lint](.ansible-lint)).
 - **Linting Validation** (`.github/workflows/ci.yml`), on pull requests: markdownlint, linkspector, yamllint.
 
